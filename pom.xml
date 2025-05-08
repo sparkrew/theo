@@ -18,6 +18,13 @@
             <distribution>repo</distribution>
         </license>
     </licenses>
+    <developers>
+        <developer>
+            <name>Yogya Gamage</name>
+            <url>https://yogya-gamage.vercel.app/</url>
+            <organization>University of Montreal</organization>
+        </developer>
+    </developers>
     <modules>
         <module>preprocessor</module>
         <module>monitor</module>
