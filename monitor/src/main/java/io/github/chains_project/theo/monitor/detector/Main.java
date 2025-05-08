@@ -1,6 +1,6 @@
 package io.github.chains_project.theo.monitor.detector;
 
-import shaded.picocli.CommandLine;
+import picocli.CommandLine;
 
 import java.nio.file.Path;
 

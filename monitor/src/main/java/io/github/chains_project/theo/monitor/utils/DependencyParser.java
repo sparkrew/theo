@@ -1,7 +1,7 @@
 package io.github.chains_project.theo.monitor.utils;
 
-import shaded.fasterxml.jackson.core.type.TypeReference;
-import shaded.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.File;
 import java.io.IOException;

@@ -32,13 +32,14 @@ public class Processor {
      * @param event            the event observed by the JFR
      */
     public final AccessRecord readRecordings(String detectorCategory, RecordedEvent event) {
-
         if (event.getStackTrace() == null) {
+            System.out.println("No stack trace found for the event: " + event.getEventType().getName());
             return null;
         }
         RecordedStackTrace stackTrace = event.getStackTrace();
         List<FrameInfo> frameInfo = constructStackTrace(stackTrace);
         if (frameInfo == null || frameInfo.isEmpty()) {
+            System.out.println("No valid frmaeinfo: " + event.getEventType().getName());
             return null;
         }
         // ToDo: this is not working. Improve the construct stack trace method

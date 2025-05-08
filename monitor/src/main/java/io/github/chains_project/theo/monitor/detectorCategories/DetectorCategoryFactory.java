@@ -21,13 +21,13 @@ public class DetectorCategoryFactory {
     public static AbstractCategory createCategory(String method, String className, List<AbstractCategory.SubMethod>
             calledBy, RecordedEvent event, String detectorCategory) {
         switch ((detectorCategory)) {
-            case "ClassLoad" -> {
-                String loadedClass = event.getClass("loadedClass").getName();
-                String definingClassLoader = event.getValue("definingClassLoader").toString();
-                String initiatingClassLoader = event.getValue("initiatingClassLoader").toString();
-                return new ClassLoad(method, className, calledBy, loadedClass, definingClassLoader,
-                        initiatingClassLoader);
-            }
+//            case "ClassLoad" -> {
+//                String loadedClass = event.getClass("loadedClass").getName();
+//                String definingClassLoader = event.getValue("definingClassLoader").toString();
+//                String initiatingClassLoader = event.getValue("initiatingClassLoader").toString();
+//                return new ClassLoad(method, className, calledBy, loadedClass, definingClassLoader,
+//                        initiatingClassLoader);
+//            }
             case "FileWrite" -> {
                 String raw = event.getValue("path");
                 if (raw == null) {

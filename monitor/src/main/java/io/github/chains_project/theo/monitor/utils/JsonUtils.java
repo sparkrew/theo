@@ -1,9 +1,9 @@
 package io.github.chains_project.theo.monitor.utils;
 
-import shaded.fasterxml.jackson.databind.JavaType;
-import shaded.fasterxml.jackson.databind.ObjectMapper;
-import shaded.fasterxml.jackson.databind.type.TypeFactory;
-import shaded.fasterxml.jackson.databind.util.StdDateFormat;
+import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.type.TypeFactory;
+import com.fasterxml.jackson.databind.util.StdDateFormat;
 
 import java.io.IOException;
 import java.nio.file.Files;

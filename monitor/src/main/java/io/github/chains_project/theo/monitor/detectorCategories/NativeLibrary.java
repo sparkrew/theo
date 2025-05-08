@@ -1,7 +1,7 @@
 package io.github.chains_project.theo.monitor.detectorCategories;
 
-import shaded.fasterxml.jackson.annotation.JsonCreator;
-import shaded.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
 
