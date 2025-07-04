@@ -39,7 +39,3 @@ build/
 .DS_Store
 
 /example/*
-/tmp_aop/*
-aop.xml
-aopconfig.jar
-settings.conf

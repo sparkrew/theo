@@ -1,107 +1,58 @@
 [![Build Status][ci-shield]][ci-link]
 
 # Theo
-Theo is a tool designed to monitor access privileges originating from third-party dependencies. By running the test 
-suite and/or executing a workload, it captures runtime information and maps resource accesses to specific dependencies. 
-
-## Motivation
-
-When new dependencies are added to a project or when their versions get updated, the code diff only shows basic changes 
-added to the dependency config files. However, these updates can introduce thousands of lines of changes within the 
-third-party libraries, which are not easily visible.
-
-While there are tools that provide information on CVEs or generate call graphs, none offer a clear visualization of 
-access privileges or highlight security-sensitive API changes inside third-party libraries. Moreover, existing tools 
-rely on static analysis, lacking the insights that dynamic code analysis offers.
-
-Having real-time, runtime information about the actual capabilities of third-party libraries can help developers make 
-better-informed decisions when managing and updating dependencies.
+Theo is a tool designed to monitor access privileges originating from third-party dependencies. By static and dynamic 
+analysis, it captures runtime information and maps resource accesses to specific dependencies. Then it detects changes 
+to these privileges across different versions of the codebase.
 
 ## How it works
 
-**Components**: Theo consists of a test generator, preprocessor, and monitor.
+**Components**: Theo consists of a preprocessor, an agent, a static analyser and a dynamic analyser.
 
-**Test Generator (optional)**: If the existing test suite doesn’t cover all possible APIs, the test generator can create
-dummy tests without assertions to invoke all reachable APIs. It uses the [Spoon](https://github.com/INRIA/spoon) library
-for generating these API invocations. [More info](testGenerator/README.md)
-
-**Preprocessor**: The preprocessor temporarily adds project dependencies to the classpath of the monitor by modifying 
-the pom.xml. It uses the [maven-lockfile](https://github.com/chains-project/maven-lockfile) to get more information about 
-the resolved dependencies. [More info](preprocessor/README.md)
-
-**Monitor**: The Monitor captures runtime data during program execution using [Java Flight Recorder (JFR)](https://openjdk.org/jeps/328). 
-Then, it generates a report with access privilege data collected by the JFR. [More info](monitor/README.md)
+ - Preprocessor is maven plugin that creates a mapping of dependencies and package names at project build time, so that we can identify the 
+dependency at runtime.
+ - The agent is a Java agent that is attached to the JVM at runtime. It captures the sensitive APIs that cannot be tracked 
+using the Java Flight Recorder (JFR) default events. It uses AspectJ to weave into sensitive APIS. 
+Once it captures a sensitive API, it creates a new JFR event. 
+ - The static analyser statically analyses the project to identify the dependencies and their privileges (sensitive API calls).
+It uses soot to do that.
+ - The dynamic analyser processes the jfr recording and maps the sensitive API calls to the dependencies.
 
 ## Usage
 
-To run the tool, execute the `preprocessor` and the `monitor` following the steps given in [`preprocessor/README.md`](preprocessor/README.md) 
-and [`monitor/README.md`](monitor/README.md) respectively.
+1. Add the following congfiguration to your `pom.xml` file:
+    ```xml
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <version>${surefire.version}</version>
+            <configuration>
+                <argLine>
+                    ${theo.argLine}
+                </argLine>
+                <forkCount>1</forkCount>
+                <reuseForks>false</reuseForks>
+            </configuration>
+        </plugin>
+    ```
+2. Set the configs in the `settings.conf` file.
+3. Execute the [`run_theo-analysis.sh`](theo-analysis.sh).
 
-Alternatively, you can execute the [`run_workflow.sh`](run_workflow.sh).
-
-Here's a breakdown of what it does.
-
-- Packages the preprocessor
-- Generates a lockfile for the project under consideration
-- Adds the dependencies of the project to the classpath of the monitor
-- Packages the monitor
-- Runs the test cases or the workload depending on the use case with JFR attached
-- Runs the monitor and generates the reports
-- Resets the pom files
+Here is a breakdown of the script:
+- Runs the maven preprocessor to generate the dependency mapping.
+- Generates a new aop.xml file that contains the third party packages according to the dependency mapping.
+- Adds the generated aop.xml file in to the agent jar.
+- Creates a copy of the previous versions of the static and dynamic analysis reports.
+- Runs tests with the agent and the JFR attached.
+- Runs the static analyser.
+- Runs the dynamic analyser with the JFR recording file generated by the tests.
+- Compares the new reports with the previous versions and generates a diff report.
 
 ## Work in progress
- 
- - Use [classport](https://github.com/chains-project/classport) instead of adding all the dependencies to the pom file to get the dependency information at runtime. 
-   If we use classport, then we can remove the preprocessor and the shader. We can also execute the jars instead of using mvn exec. 
-   All of that is needed only because we need dependency information at runtime.
- - Visualize the changes in the generated reports between two versions of code.
- - Add a proper test suite.
- - Curating a set of client projects that use dependencies with privileges, and experiment with them.
 
-## Reports
-
-An example report is given below.
-
-```json
-{
-  "org.example:hello-world:1.0-SNAPSHOT" : [ {
-    "detectorCategory" : "FileWrite",
-    "events" : [ {
-      "type" : "fileWrite",
-      "method" : "sayHello",
-      "className" : "HelloWorld.java",
-      "calledBy" : [ {
-        "dependency" : "org.example:hello-world:1.0-SNAPSHOT",
-        "methods" : [ "greet" ]
-      } ],
-      "filePath" : "/theo/hello-world/output.txt"
-    } ]
-  }, {
-    "detectorCategory" : "ProcessStart",
-    "events" : [ {
-      "type" : "processStart",
-      "method" : "sayHello",
-      "className" : "HelloWorld.java",
-      "calledBy" : [ {
-        "dependency" : "org.example:hello-world:1.0-SNAPSHOT",
-        "methods" : [ "greet" ]
-      } ],
-      "directory" : null,
-      "command" : "ls"
-    } ]
-  } ]
-}
-```
-This report contains two access categories (privileges) used by the dependency `org.example:hello-world:1.0-SNAPSHOT`. 
-Each `event` represents an instance where the given privilege is invoked. The `method` and `className` fields refer to the 
-specific method and class of the dependency that directly accessed the privilege. The `calledBy` field indicates other 
-methods from third-party libraries that invoked the corresponding method.
-
-## Miscellaneous
-
-- Theo stands for *Third Eye Open*. 
-- *[Third Eye Blind](https://www.youtube.com/channel/UCHdCnspLnD7bgi_U6E44W6g)* is an American rock band.
-- In Hinduism and Buddhism, the *[third eye](https://en.wikipedia.org/wiki/Third_eye)* symbolises the power of knowledge, the detection of evil, and consciousness. 
+- Improve Readme
+- Improve efficiency of the java agent
+- Add tests
 
 <!-- references -->
 

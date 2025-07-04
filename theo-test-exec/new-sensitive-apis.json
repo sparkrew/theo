@@ -1,0 +1,146 @@
+[ {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "fill",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "implRead",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "read",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "fill",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "implRead",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "read",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "fill",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "implRead",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "read",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "fill",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "implRead",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "read",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "fill",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "implRead",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "read",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.security.SecureClassLoader",
+  "method" : "defineClass",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.security.SecureClassLoader",
+  "method" : "defineClass",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "fill",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "implRead",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "read",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "fill",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "implRead",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "read",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "fill",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "implRead",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "read",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "fill",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "implRead",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+}, {
+  "className" : "java.io.BufferedInputStream",
+  "method" : "read",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+} ]

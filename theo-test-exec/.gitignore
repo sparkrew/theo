@@ -8,7 +8,6 @@ target/
 .idea/jarRepositories.xml
 .idea/compiler.xml
 .idea/libraries/
-.idea/*
 *.iws
 *.iml
 *.ipr
@@ -37,9 +36,3 @@ build/
 
 ### Mac OS ###
 .DS_Store
-
-/example/*
-/tmp_aop/*
-aop.xml
-aopconfig.jar
-settings.conf

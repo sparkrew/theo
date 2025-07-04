@@ -1,0 +1,1358 @@
+[
+  {
+    "className": "java.io.FileInputStream",
+    "method": "<init>",
+    "subcategory": "INPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.io.FileReader",
+    "method": "<init>",
+    "subcategory": "INPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.channels.FileChannel",
+    "method": "read",
+    "subcategory": "INPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "lines",
+    "subcategory": "INPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "newBufferedReader",
+    "subcategory": "INPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "newInputStream",
+    "subcategory": "INPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "readAllBytes",
+    "subcategory": "INPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "readAllLines",
+    "subcategory": "INPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "readString",
+    "subcategory": "INPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "readSymbolicLink",
+    "subcategory": "INPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.util.Scanner",
+    "method": "<init>",
+    "subcategory": "INPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "javax.xml.parsers.DocumentBuilder",
+    "method": "parse",
+    "subcategory": "INPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "javax.xml.parsers.SAXParser",
+    "method": "parse",
+    "subcategory": "INPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.io.File",
+    "method": "<init>",
+    "subcategory": "MISCELLANEOUS",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.io.File",
+    "method": "exists",
+    "subcategory": "MISCELLANEOUS",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.io.File",
+    "method": "getAbsolutePath",
+    "subcategory": "MISCELLANEOUS",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.io.File",
+    "method": "getCanonicalFile",
+    "subcategory": "MISCELLANEOUS",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.io.File",
+    "method": "getPath",
+    "subcategory": "MISCELLANEOUS",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.io.File",
+    "method": "toPath",
+    "subcategory": "MISCELLANEOUS",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.io.RandomAccessFile",
+    "method": "<init>",
+    "subcategory": "MISCELLANEOUS",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.channels.FileChannel",
+    "method": "<init>",
+    "subcategory": "MISCELLANEOUS",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Paths",
+    "method": "get",
+    "subcategory": "MISCELLANEOUS",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.security.BasicPermission",
+    "method": "<init>",
+    "subcategory": "MISCELLANEOUS",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.security.ProtectionDomain",
+    "method": "<init>",
+    "subcategory": "MISCELLANEOUS",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "copy",
+    "subcategory": "MODIFICATION",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "delete",
+    "subcategory": "MODIFICATION",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "deleteIfExists",
+    "subcategory": "MODIFICATION",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "move",
+    "subcategory": "MODIFICATION",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "newByteChannel",
+    "subcategory": "MODIFICATION",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.io.File",
+    "method": "createTempFile",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.io.File",
+    "method": "mkdir",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.io.FileOutputStream",
+    "method": "<init>",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.io.FileWriter",
+    "method": "<init>",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "createFile",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "createLink",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "createSymbolicLink",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "createTempFile",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "newBufferedWriter",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "newOutputStream",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "setLastModifiedTime",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "setOwner",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "setPosixFilePermissions",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "write",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.nio.file.Files",
+    "method": "writeString",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.util.logging.Logger",
+    "method": "info",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.util.logging.Logger",
+    "method": "log",
+    "subcategory": "OUTPUT",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.lang.ProcessBuilder",
+    "method": "environment",
+    "subcategory": "READ_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.lang.System",
+    "method": "getenv",
+    "subcategory": "READ_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.lang.System",
+    "method": "getProperties",
+    "subcategory": "READ_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.lang.System",
+    "method": "getProperty",
+    "subcategory": "READ_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.lang.System",
+    "method": "getSecurityManager",
+    "subcategory": "READ_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.sql.Connection",
+    "method": "getMetaData",
+    "subcategory": "READ_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.util.Properties",
+    "method": "getProperty",
+    "subcategory": "READ_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.util.Properties",
+    "method": "setProperty",
+    "subcategory": "READ_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.util.Properties",
+    "method": "<init>",
+    "subcategory": "READ_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.net.InetAddress",
+    "method": "getAllByName",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.net.InetAddress",
+    "method": "getHostAddress",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.net.InetAddress",
+    "method": "getHostName",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.net.InetAddress",
+    "method": "getLocalHost",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.net.InetAddress",
+    "method": "getLoopbackAddress",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.net.InetAddress",
+    "method": "isReachable",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.net.InetSocketAddress",
+    "method": "<init>",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.net.InetSocketAddress",
+    "method": "getHostName",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.net.InetSocketAddress",
+    "method": "getPort",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.net.NetworkInterface",
+    "method": "getInetAddresses",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.net.Socket",
+    "method": "getInetAddress",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.net.URI",
+    "method": "<init>",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.net.URI",
+    "method": "getAuthority",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.net.URI",
+    "method": "getHost",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.net.URI",
+    "method": "getPort",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "java.net.URI",
+    "method": "getRawSchemeSpecificPart",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "javax.servlet.http.HttpServletRequest",
+    "method": "getContextPath",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "javax.servlet.http.HttpServletRequest",
+    "method": "getLocalAddr",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "javax.servlet.http.HttpServletRequest",
+    "method": "getLocalName",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "javax.servlet.http.HttpServletRequest",
+    "method": "getLocalPort",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "javax.servlet.http.HttpServletRequest",
+    "method": "getRemoteAddr",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "javax.servlet.http.HttpServletRequest",
+    "method": "getRemotePort",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "javax.servlet.http.HttpServletRequest",
+    "method": "getQueryString",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "javax.servlet.http.HttpServletRequest",
+    "method": "getRequestURI",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "javax.servlet.http.HttpServletRequest",
+    "method": "getServletPath",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "javax.servlet.http.HttpServletResponse",
+    "method": "setStatus",
+    "subcategory": "READ_NETWORK_ENV",
+    "category": "FILESYSTEM"
+  },
+  {
+    "className": "jakarta.servlet.ServletContext",
+    "method": "getRequestDispatcher",
+    "subcategory": "CONNECTION",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.HttpsURLConnection",
+    "method": "<init>",
+    "subcategory": "CONNECTION",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.HttpsURLConnection",
+    "method": "connect",
+    "subcategory": "CONNECTION",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.HttpURLConnection",
+    "method": "<init>",
+    "subcategory": "CONNECTION",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.HttpURLConnection",
+    "method": "connect",
+    "subcategory": "CONNECTION",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.HttpURLConnection",
+    "method": "getInputStream",
+    "subcategory": "CONNECTION",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.HttpURLConnection",
+    "method": "getOutputStream",
+    "subcategory": "CONNECTION",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.JarURLConnection",
+    "method": "<init>",
+    "subcategory": "CONNECTION",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.JarURLConnection",
+    "method": "connect",
+    "subcategory": "CONNECTION",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.URL",
+    "method": "<init>",
+    "subcategory": "CONNECTION",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.URL",
+    "method": "openConnection",
+    "subcategory": "CONNECTION",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.URL",
+    "method": "openStream",
+    "subcategory": "CONNECTION",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.sql.DriverManager",
+    "method": "getConnection",
+    "subcategory": "CONNECTION",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.sql.Statement",
+    "method": "executeQuery",
+    "subcategory": "CONNECTION",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.servlet.http.HttpServletRequest",
+    "method": "getRequestDispatcher",
+    "subcategory": "CONNECTION",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.sql.DataSource",
+    "method": "getConnection",
+    "subcategory": "CONNECTION",
+    "category": "NETWORK"
+  },
+  {
+    "className": "jakarta.servlet.http.HttpServletRequest",
+    "method": "getParameter",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "jakarta.servlet.http.HttpServletRequest",
+    "method": "getRequestDispatcher",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "jakarta.servlet.http.HttpServletRequest",
+    "method": "setAttribute",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "jakarta.servlet.http.HttpServletResponse",
+    "method": "getWriter",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "jakarta.servlet.http.HttpServletResponse",
+    "method": "setStatus",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.http.HttpClient",
+    "method": "<init>",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.http.HttpClient.Builder",
+    "method": "build",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.http.HttpClient",
+    "method": "newBuilder",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.http.HttpClient",
+    "method": "newHttpClient",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.http.HttpClient",
+    "method": "send",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.http.HttpClient",
+    "method": "sendAsync",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.net.ssl.HttpsURLConnection",
+    "method": "setHostnameVerifier",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.security.auth.login.LoginContext",
+    "method": "login",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.servlet.http.Cookie",
+    "method": "<init>",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.servlet.http.HttpServlet",
+    "method": "<init>",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.servlet.http.HttpServletResponse",
+    "method": "addHeader",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.servlet.http.HttpServletResponse",
+    "method": "getWriter",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.servlet.http.HttpServletResponse",
+    "method": "sendRedirect",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.servlet.http.HttpServletRequest",
+    "method": "getParameter",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.servlet.http.HttpServletRequestWrapper",
+    "method": "<init>",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.servlet.http.HttpSession",
+    "method": "getAttribute",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.servlet.http.HttpSession",
+    "method": "setAttribute",
+    "subcategory": "HTTP",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.naming.Context",
+    "method": "<init>",
+    "subcategory": "NAMING_DIRECTORY",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.naming.Context",
+    "method": "bind",
+    "subcategory": "NAMING_DIRECTORY",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.naming.Context",
+    "method": "list",
+    "subcategory": "NAMING_DIRECTORY",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.naming.Context",
+    "method": "listBindings",
+    "subcategory": "NAMING_DIRECTORY",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.naming.Context",
+    "method": "lookup",
+    "subcategory": "NAMING_DIRECTORY",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.naming.Context",
+    "method": "lookupLink",
+    "subcategory": "NAMING_DIRECTORY",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.naming.Context",
+    "method": "rebind",
+    "subcategory": "NAMING_DIRECTORY",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.naming.Context",
+    "method": "rename",
+    "subcategory": "NAMING_DIRECTORY",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.naming.Context",
+    "method": "unbind",
+    "subcategory": "NAMING_DIRECTORY",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.naming.directory.DirContext",
+    "method": "<init>",
+    "subcategory": "NAMING_DIRECTORY",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.naming.directory.InitialDirContext",
+    "method": "<init>",
+    "subcategory": "NAMING_DIRECTORY",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.naming.InitialContext",
+    "method": "<init>",
+    "subcategory": "NAMING_DIRECTORY",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.naming.InitialContext",
+    "method": "lookup",
+    "subcategory": "NAMING_DIRECTORY",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.DatagramSocket",
+    "method": "<init>",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.DatagramSocket",
+    "method": "connect",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.http.HttpClient",
+    "method": "newWebSocketBuilder",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.http.WebSocket.Builder",
+    "method": "buildAsync",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.http.WebSocket",
+    "method": "sendBinary",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.http.WebSocket",
+    "method": "sendPing",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.http.WebSocket",
+    "method": "sendPong",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.http.WebSocket",
+    "method": "sendText",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.ServerSocket",
+    "method": "<init>",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.ServerSocket",
+    "method": "accept",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.Socket",
+    "method": "<init>",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.Socket",
+    "method": "connect",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.Socket",
+    "method": "getInputStream",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.nio.channels.ServerSocketChannel",
+    "method": "<init>",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.nio.channels.ServerSocketChannel",
+    "method": "socket",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.nio.channels.SocketChannel",
+    "method": "<init>",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.rmi.server.RMISocketFactory",
+    "method": "<init>",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.rmi.server.RMISocketFactory",
+    "method": "createServerSocket",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.rmi.server.RMISocketFactory",
+    "method": "createSocket",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "javax.websocket.WebSocketContainer",
+    "method": "<init>",
+    "subcategory": "SOCKET",
+    "category": "NETWORK"
+  },
+  {
+    "className": "java.net.URLDecoder",
+    "method": "decode",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.net.URLEncoder",
+    "method": "encode",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.nio.charset.CharsetDecoder",
+    "method": "charset",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.nio.charset.CharsetEncoder",
+    "method": "charset",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.security.MessageDigest",
+    "method": "getInstance",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.security.MessageDigest",
+    "method": "<init>",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.util.Base64.Decoder",
+    "method": "decode",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.util.Base64.Decoder",
+    "method": "wrap",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.util.Base64.Encoder",
+    "method": "encode",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.util.Base64.Encoder",
+    "method": "encodeToString",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.util.Base64.Encoder",
+    "method": "wrap",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.util.Base64",
+    "method": "getDecoder",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.util.Base64",
+    "method": "getEncoder",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "javax.crypto.Cipher",
+    "method": "doFinal",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "javax.crypto.Cipher",
+    "method": "getInstance",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "javax.crypto.Cipher",
+    "method": "init",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "javax.crypto.Cipher",
+    "method": "update",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "javax.crypto.Cipher",
+    "method": "updateAAD",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "javax.crypto.Cipher",
+    "method": "wrap",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "javax.websocket.Decoder.Binary",
+    "method": "decode",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "javax.websocket.Decoder.Text",
+    "method": "decode",
+    "subcategory": "CODEC_CRYPTO",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.Runtime",
+    "method": "load",
+    "subcategory": "DEPENDENCY",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.Runtime",
+    "method": "loadLibrary",
+    "subcategory": "DEPENDENCY",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.System",
+    "method": "load",
+    "subcategory": "DEPENDENCY",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.System",
+    "method": "loadLibrary",
+    "subcategory": "DEPENDENCY",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.awt.Desktop",
+    "method": "open",
+    "subcategory": "OPERATING SYSTEM",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.ProcessBuilder",
+    "method": "start",
+    "subcategory": "OPERATING SYSTEM",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.ProcessBuilder",
+    "method": "<init>",
+    "subcategory": "OPERATING SYSTEM",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.Runtime",
+    "method": "exec",
+    "subcategory": "OPERATING SYSTEM",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.beans.Introspector",
+    "method": "getBeanInfo",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.beans.PropertyDescriptor",
+    "method": "<init>",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.beans.PropertyDescriptor",
+    "method": "getWriteMethod",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.io.ObjectInputStream",
+    "method": "readObject",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.Class",
+    "method": "forName",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.Class",
+    "method": "getConstructor",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.Class",
+    "method": "getConstructors",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.Class",
+    "method": "getDeclaredConstructor",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.Class",
+    "method": "getDeclaredConstructors",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.Class",
+    "method": "getDeclaredMethod",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.Class",
+    "method": "getDeclaredMethods",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.Class",
+    "method": "getMethod",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.Class",
+    "method": "getMethods",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.Class",
+    "method": "getSuperclass",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.Class",
+    "method": "newInstance",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.ClassLoader",
+    "method": "<init>",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.ClassLoader",
+    "method": "defineClass",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.reflect.AccessibleObject",
+    "method": "setAccessible",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.reflect.Constructor",
+    "method": "newInstance",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.reflect.Method",
+    "method": "getDeclaringClass",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.lang.reflect.Method",
+    "method": "invoke",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.net.URLClassLoader",
+    "method": "<init>",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.net.URLClassLoader",
+    "method": "newInstance",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.rmi.server.RMIClassLoader",
+    "method": "getClassLoader",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.rmi.server.RMIClassLoader",
+    "method": "loadClass",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.util.ServiceLoader",
+    "method": "load",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "java.util.ServiceLoader",
+    "method": "loadInstalled",
+    "subcategory": "REFLECTION",
+    "category": "PROCESS"
+  },
+  {
+    "className": "javax.script.ScriptEngine",
+    "method": "eval",
+    "subcategory": "SCRIPTING",
+    "category": "PROCESS"
+  },
+  {
+    "className": "javax.script.ScriptEngineFactory",
+    "method": "getScriptEngine",
+    "subcategory": "SCRIPTING",
+    "category": "PROCESS"
+  },
+  {
+    "className": "javax.script.ScriptEngineManager",
+    "method": "<init>",
+    "subcategory": "SCRIPTING",
+    "category": "PROCESS"
+  },
+  {
+    "className": "javax.script.ScriptEngineManager",
+    "method": "getEngineByExtension",
+    "subcategory": "SCRIPTING",
+    "category": "PROCESS"
+  },
+  {
+    "className": "javax.script.ScriptEngineManager",
+    "method": "getEngineByMimeType",
+    "subcategory": "SCRIPTING",
+    "category": "PROCESS"
+  },
+  {
+    "className": "javax.script.ScriptEngineManager",
+    "method": "getEngineByName",
+    "subcategory": "SCRIPTING",
+    "category": "PROCESS"
+  },
+  {
+    "className": "javax.script.ScriptEngineManager",
+    "method": "getEngineFactories",
+    "subcategory": "SCRIPTING",
+    "category": "PROCESS"
+  },
+  {
+    "className": "jdk.jshell.JShell.Builder",
+    "method": "build",
+    "subcategory": "SCRIPTING",
+    "category": "PROCESS"
+  },
+  {
+    "className": "jdk.jshell.JShell",
+    "method": "builder",
+    "subcategory": "SCRIPTING",
+    "category": "PROCESS"
+  },
+  {
+    "className": "jdk.jshell.JShell",
+    "method": "create",
+    "subcategory": "SCRIPTING",
+    "category": "PROCESS"
+  },
+  {
+    "className": "jdk.jshell.JShell",
+    "method": "eval",
+    "subcategory": "SCRIPTING",
+    "category": "PROCESS"
+  },
+  {
+  "className" : "java.io.FileInputStream",
+  "method" : "read",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+  },
+  {
+  "className" : "java.lang.ClassLoader",
+  "method" : "loadClass",
+  "category" : "PROCESS",
+  "subcategory" : "REFLECTION"
+  },
+  {
+  "className" : "java.util.Properties",
+  "method" : "load",
+  "category" : "FILESYSTEM",
+  "subcategory" : "READ_ENV"
+  },
+  {
+  "className" : "java.security.AccessController",
+  "method" : "executePrivileged",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+  },
+  {
+  "className" : "java.security.AccessController",
+  "method" : "doPrivileged",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+  },
+  {
+  "className" : "java.util.logging.Logger",
+  "method" : "demandLogger",
+  "category" : "FILESYSTEM",
+  "subcategory" : "OUTPUT"
+  },
+  {
+  "className" : "java.util.logging.Logger",
+  "method" : "getLogger",
+  "category" : "FILESYSTEM",
+  "subcategory" : "OUTPUT"
+  }
+]
