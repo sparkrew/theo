@@ -42,4 +42,3 @@ build/
 /tmp_aop/*
 aop.xml
 aopconfig.jar
-settings.conf

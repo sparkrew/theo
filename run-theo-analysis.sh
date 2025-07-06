@@ -55,12 +55,22 @@ if [[ -f "theo-test-report.json" ]]; then
   cp theo-test-report.json theo-test-report.old.json
 fi
 
-# Run tests with Java agent and Flight Recorder
-mvn test \
-   -Dtheo.argLine="--add-opens=java.base/java.lang=ALL-UNNAMED \
-  --add-opens=java.base/java.util=ALL-UNNAMED \
-  -XX:StartFlightRecording=name=jfrTestRecording,settings=$JFR_SETTINGS_FILE_PATH,filename=$JFR_REPORT_PATH \
-  -javaagent:$THEO_JAVA_AGENT_JAR_PATH"
+# Common JVM args
+JVM_ARGS="--add-opens=java.base/java.lang=ALL-UNNAMED \
+--add-opens=java.base/java.util=ALL-UNNAMED \
+-XX:StartFlightRecording=name=jfrTestRecording,settings=$JFR_SETTINGS_FILE_PATH,filename=$JFR_REPORT_PATH \
+-javaagent:$THEO_JAVA_AGENT_JAR_PATH"
+
+# Run test or exec based on MODE
+if [ "$MODE" = "test" ]; then
+  echo "Running in TEST mode..."
+  mvn test -Dtheo.argLine="$JVM_ARGS"
+else
+  echo "Running in WORKLOAD mode..."
+  mvn org.codehaus.mojo:exec-maven-plugin:3.5.1:exec \
+    -Dexec.executable=java \
+    -Dexec.args="$JVM_ARGS -classpath %classpath $MAIN_CLASS $MAIN_CLASS_PARAMS"
+fi
 
 # Run Static Analyzer
 java -jar "$THEO_STATIC_ANALYZER_JAR_PATH" process \
