@@ -67,9 +67,8 @@ if [ "$MODE" = "test" ]; then
   mvn test -Dtheo.argLine="$JVM_ARGS"
 else
   echo "Running in WORKLOAD mode..."
-  mvn org.codehaus.mojo:exec-maven-plugin:3.5.1:exec \
-    -Dexec.executable=java \
-    -Dexec.args="$JVM_ARGS -classpath %classpath $MAIN_CLASS $MAIN_CLASS_PARAMS"
+  echo "Run the workload separately and press any key once continue..."
+  read -n 1 -s
 fi
 
 # Run Static Analyzer
@@ -110,6 +109,7 @@ if [[ -n "$OLD_DYNAMIC_REPORT_CONTENT" ]]; then
   fi
 fi
 
+cd "$ORIGINAL_DIR"
 # Clean up and restore original jar
 mv "${THEO_JAVA_AGENT_JAR_PATH}.bak" "$THEO_JAVA_AGENT_JAR_PATH"
 rm -rf "$TMP_DIR"
