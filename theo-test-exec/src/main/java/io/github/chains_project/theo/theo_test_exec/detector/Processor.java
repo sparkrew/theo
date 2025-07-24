@@ -211,6 +211,28 @@ public class Processor {
         return new AccessRecord(depName, classMethod, position, category, sensitiveMethod);
     }
 
+    private boolean isDirectTestMethodCall(RecordedStackTrace stackTrace) {
+        // Assumes stack trace is ordered.
+        for (RecordedFrame frame : stackTrace.getFrames()) {
+            if (!frame.isJavaFrame()) {
+                continue;
+            }
+            String className = frame.getMethod().getType().getName();
+            // If we find a class from the application first then even if another test method is seen in the stack
+            // trace later, then we consider this as a method that represents the actual application execution.
+            if (className.startsWith(props.get("packageName"))) {
+                return false;
+            }
+            if (className.endsWith("Test") || className.endsWith("Tests") || className.endsWith("TestCase")) {
+                // If we come with a test method first, before a method from the actual program, that means that method
+                // call is a test preparatory step that does not belong to the actual application.
+                return true;
+            }
+        }
+        log.error("Stack trace contains no recognizable test or application code.");
+        return false; // This is a case that should not have happened.
+    }
+
     /**
      * Analyzes a stack trace and finds all sensitive API calls
      *
@@ -269,14 +291,20 @@ public class Processor {
         if (classApis != null) {
             for (SensitiveAPIDescriptor api : classApis) {
                 if (api.method().equals(methodName) || api.method().equals("*")) {
-//                    if (api.className().contains("java.lang.reflect")) continue;
                     return api;
                 }
             }
         }
+        //return findOrDiscoverSensitiveApi(className, methodName, detectorCategory, classApis);
+        return null;
+    }
+
+    // This method is to find new sensitive API that are not in the original list based on the class and method names.
+    // But, we do not want this functionality for now.
+    private SensitiveAPIDescriptor findOrDiscoverSensitiveApi(String className, String methodName, String detectorCategory, List<SensitiveAPIDescriptor> classApis) {
         // We observed many sensitive APIs which are not in the API list. Therefore, we carry out this iterative
         // process to dynamically collect new sensitive APIs
-        if (detectorCategory.equals("ClassLoad")) { //But we don't collect new APIs for ClassLoad events.
+        if (detectorCategory.equals("ClassLoad")) { // But we don't collect new APIs for ClassLoad events.
             return null;
         }
         for (Map.Entry<String, List<SensitiveAPIDescriptor>> entry : sensitiveApiMap.entrySet()) {
@@ -316,7 +344,7 @@ public class Processor {
                         );
                         //classApis.add(newApi);
                         newlyDiscoveredApis.add(newApi);
-                        return null;
+                        return newApi;
                     }
                 }
             }
