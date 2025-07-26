@@ -10,6 +10,10 @@ ORIGINAL_DIR=$(pwd)
 # Move to project source directory
 cd "$PROJECT_SOURCE_CODE_PATH" || { echo "Error: Failed to cd into $PROJECT_SOURCE_CODE_PATH"; exit 1; }
 
+cd ../
+mvn clean install -DskipTests
+cd web
+
 # Run Theo Preprocessor
 mvn io.github.chains-project:theo-preprocessor-maven-plugin:1.0-SNAPSHOT:preprocess \
     -DoutputFile="$PACKAGE_MAP_OUTPUT_PATH"
@@ -67,8 +71,24 @@ if [ "$MODE" = "test" ]; then
   mvn test -Dtheo.argLine="$JVM_ARGS"
 else
   echo "Running in WORKLOAD mode..."
-  echo "Run the workload separately and press any key once continue..."
-  read -n 1 -s
+  echo "Setting up Python virtual environment..."
+
+    VENV_DIR=".venv"
+    PYTHON_BIN="/opt/homebrew/opt/python@3.13/bin/python3.13"
+
+    if [ ! -d "$VENV_DIR" ]; then
+      $PYTHON_BIN -m venv "$VENV_DIR"
+    fi
+
+    source "$VENV_DIR/bin/activate"
+
+    echo "Installing required Python packages..."
+    pip install --quiet psutil
+
+    echo "Running e2e workload using $E2E_PATH..."
+    python "$E2E_PATH"
+
+    deactivate
 fi
 
 # Run Static Analyzer
@@ -105,7 +125,7 @@ if [[ -n "$OLD_DYNAMIC_REPORT_CONTENT" ]]; then
     [[ "$WRITE_DIFF_TO_FILE" == "true" ]] && cp dynamic_diff.patch theo-test-report.diff
     EXIT_CODE=1
   else
-    echo "Dependency privileges have not changed since the last version according to the static analysis!"
+    echo "Dependency privileges have not changed since the last version according to the dynamic analysis!"
   fi
 fi
 
