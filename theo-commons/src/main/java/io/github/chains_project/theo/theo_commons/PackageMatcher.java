@@ -23,7 +23,7 @@ public class PackageMatcher {
     private static final Map<String, List<String>> dependencyMap = new HashMap<>();
     private static boolean loaded = false;
 
-    private static List<String> ignoredPrefixes = Arrays.asList(
+    private static final List<String> ignoredPrefixes = Arrays.asList(
             "java.", "org.testng.", "org.junit.", "org.eclipse.", "org.slf4j.",
             "jdk.", "javax.", "sun.", "jakarta.", "org.apache.", "org.aspectj.", "com.sun."
     );
@@ -50,8 +50,8 @@ public class PackageMatcher {
         String dependency = packageNames.get(0);
         if (dependency != null) {
             String[] parts = dependency.split(":");
-            if (parts.length >= 2) {
-                return parts[0] + "." + parts[1];
+            if (parts.length >= 4) {
+                return parts[0] + ":" + parts[1] + ":" + parts[3];
             } else {
                 log.error("Invalid dependency format for package '{}': {}", packageName, dependency);
                 return dependency;

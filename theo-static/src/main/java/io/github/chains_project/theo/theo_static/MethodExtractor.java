@@ -165,6 +165,9 @@ public class MethodExtractor {
                 lastDepIndex = i;
             }
         }
+        // Here, we go again over the ordered package names and assign the positions based on the first and last
+        // indices. If we can come up with a more optimized solution that does not need looping over twice, that would
+        // be great. Now this works, so don't want to ruin it.
         for (int i = 0; i < orderedPackageNames.size(); i++) {
             String packageName = orderedPackageNames.get(i);
             String dep = PackageMatcher.getDependencyName(packageName, packagePath);
