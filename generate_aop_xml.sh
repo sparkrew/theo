@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 # Load settings
-source ./settings.conf
+SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+source "$SCRIPT_DIR"/settings.conf
 
 # Required variables from settings
 : "${PROJECT_PACKAGE_NAME:?Need PROJECT_PACKAGE_NAME in settings}"

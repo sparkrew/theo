@@ -14,7 +14,7 @@ GRAPHOPPER_CMD = [
     'filename=/Users/yogyagamage/Documents/KTH/theo/prod/graphhopper-new/web/jfr-report1.jfr '
     '-javaagent:/Users/yogyagamage/Documents/UdeM/theo/theo-agent/target/theo-agent-1.0-SNAPSHOT-jar-with-dependencies.jar '
     '-classpath %classpath com.graphhopper.application.GraphHopperApplication server '
-    '/Users/yogyagamage/Documents/UdeM/theo/config.yml'
+    '/Users/yogyagamage/Documents/KTH/theo/prod/graphhopper-new/config-example.yml'
 ]
 
 BASE_URL = "http://localhost:8989"

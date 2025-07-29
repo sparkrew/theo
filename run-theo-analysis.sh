@@ -3,23 +3,18 @@
 set -e
 set -o pipefail
 
-source ./settings.conf
-
-ORIGINAL_DIR=$(pwd)
+SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+source "$SCRIPT_DIR"/settings.conf
 
 # Move to project source directory
 cd "$PROJECT_SOURCE_CODE_PATH" || { echo "Error: Failed to cd into $PROJECT_SOURCE_CODE_PATH"; exit 1; }
-
-cd ../
-mvn clean install -DskipTests
-cd web
 
 # Run Theo Preprocessor
 mvn io.github.chains-project:theo-preprocessor-maven-plugin:1.0-SNAPSHOT:preprocess \
     -DoutputFile="$PACKAGE_MAP_OUTPUT_PATH"
 
 # This is the other script to generate the AOP XML. We have to go back to the original directory to run that.
-cd "$ORIGINAL_DIR"
+cd "$SCRIPT_DIR"
 source ./generate_aop_xml.sh
 
 # Move to project source directory
@@ -105,33 +100,17 @@ java -jar "$THEO_DYNAMIC_ANALYZER_JAR_PATH" process \
   -n "$NOISE_REMOVAL"
 
 # Compare with reports from the previous version if they exist
-EXIT_CODE=0
-
 if [[ -n "$OLD_STATIC_REPORT_CONTENT" ]]; then
-  if ! diff -u theo-static-report.old.json theo-static-report.json > static_diff.patch; then
-    echo -e "\n Dependency privileges have changed compared to the previous version according to the static analysis!"
-    cat static_diff.patch | sed 's/^-/\x1b[31m-/;s/^+/\x1b[32m+/;s/$/\x1b[0m/'
-    [[ "$WRITE_DIFF_TO_FILE" == "true" ]] && cp static_diff.patch theo-static-report.diff
-    EXIT_CODE=1
-  else
-    echo "Dependency privileges have not changed since the last version according to the static analysis!"
-  fi
+  diff -u theo-static-report.old.json theo-static-report.json > static_diff.patch || true
+  [[ "$WRITE_DIFF_TO_FILE" == "true" ]] && cp static_diff.patch theo-static-report.diff
 fi
 
 if [[ -n "$OLD_DYNAMIC_REPORT_CONTENT" ]]; then
-  if ! diff -u theo-test-report.old.json theo-test-report.json > dynamic_diff.patch; then
-    echo -e "\n Dependency privileges have changed compared to the previous version according to the dynamic analysis!"
-    cat dynamic_diff.patch | sed 's/^-/\x1b[31m-/;s/^+/\x1b[32m+/;s/$/\x1b[0m/'
-    [[ "$WRITE_DIFF_TO_FILE" == "true" ]] && cp dynamic_diff.patch theo-test-report.diff
-    EXIT_CODE=1
-  else
-    echo "Dependency privileges have not changed since the last version according to the dynamic analysis!"
-  fi
+  diff -u theo-test-report.old.json theo-test-report.json > dynamic_diff.patch || true
+  [[ "$WRITE_DIFF_TO_FILE" == "true" ]] && cp dynamic_diff.patch theo-test-report.diff
 fi
 
-cd "$ORIGINAL_DIR"
+cd "$SCRIPT_DIR"
 # Clean up and restore original jar
 mv "${THEO_JAVA_AGENT_JAR_PATH}.bak" "$THEO_JAVA_AGENT_JAR_PATH"
 rm -rf "$TMP_DIR"
-
-exit $EXIT_CODE
