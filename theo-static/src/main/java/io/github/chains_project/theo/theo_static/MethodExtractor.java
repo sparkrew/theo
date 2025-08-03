@@ -90,6 +90,7 @@ public class MethodExtractor {
             Map<MethodSignature, Set<MethodSignature>> reachableMap = new HashMap<>();
             // We first find all reachable methods from the entry point.
             for (MethodSignature entryPoint : entryPoints) {
+                System.out.println("Analyzing entry point: " + entryPoint);
                 Set<MethodSignature> reachable = getAllReachableMethods(cg, entryPoint);
                 reachableMap.put(entryPoint, reachable);
             }
@@ -233,8 +234,9 @@ public class MethodExtractor {
         return view.getClasses()
                 .flatMap(c -> c.getMethods().stream())
                 .filter(SootMethod::isPublic)
-                .filter(method -> "main".equals(method.getName()))
-                .filter(method -> method.getDeclaringClassType().getPackageName().getName().startsWith(packageName))
+                .filter(method -> "call".equals(method.getName()) || "main".equals(method.getName()) || "run".equals(method.getName()))
+                .filter(method -> method.getDeclaringClassType().getPackageName().getName().startsWith("org.apache.pdfbox.tools")) // Change here
+//                .filter(method -> method.getDeclaringClassType().getFullyQualifiedName().startsWith("org.apache.pdfbox.tools.PDFBox")) // Change here
                 .map(SootMethod::getSignature)
                 .collect(Collectors.toSet());
     }

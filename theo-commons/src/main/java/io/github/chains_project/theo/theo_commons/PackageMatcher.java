@@ -25,7 +25,7 @@ public class PackageMatcher {
 
     private static final List<String> ignoredPrefixes = Arrays.asList(
             "java.", "org.testng.", "org.junit.", "org.eclipse.", "org.slf4j.",
-            "jdk.", "javax.", "sun.", "jakarta.", "org.apache.", "org.aspectj.", "com.sun.", "com.graphhopper."
+            "jdk.", "javax.", "sun.", "jakarta.", "org.apache.", "org.aspectj.", "com.sun.", "org.apache.pdfbox."
     );
 
     /**

@@ -11,7 +11,7 @@ mkdir -p "$REPORTS_DIR"
 
 cd "$PROJECT_ROOT_DIR"
 
-START_COMMIT=""
+START_COMMIT="296cf4bb80553607d15544a96bf8bf861de7bc6a"
 
 # Get short date format (YYYY-MM-DD)
 START_DATE=$(git show -s --format=%cd --date=short "$START_COMMIT")
@@ -22,7 +22,7 @@ COMMITS=()
 while IFS= read -r line; do
   echo "Found commit: $line"
   COMMITS+=("$line")
-done < <(git log --since="2025-01-05" --until="2025-01-05" --format="%H" --reverse)
+done < <(git log --since="2024-07-28" --until="2025-07-28" --format="%H" --reverse)
 
 echo "Total: ${#COMMITS[@]}"
 
@@ -32,7 +32,7 @@ for COMMIT in "${COMMITS[@]}"; do
     git checkout "$COMMIT"
 
     # Extract version from pom.xml in web module
-    VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" "$PROJECT_SOURCE_CODE_PATH/pom.xml")
+    VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='parent']/*[local-name()='version']/text()" "$PROJECT_SOURCE_CODE_PATH/pom.xml")
 
     if [ -z "$VERSION" ]; then
         echo "Could not find version in pom.xml for commit $COMMIT. Skipping..."
@@ -40,7 +40,7 @@ for COMMIT in "${COMMITS[@]}"; do
     fi
 
     # Update PROJECT_JAR_PATH in settings.conf
-    sed -i.bak -E "s|^PROJECT_JAR_PATH=.*|PROJECT_JAR_PATH=\"$PROJECT_SOURCE_CODE_PATH/target/graphhopper-web-$VERSION.jar\"|" "$SCRIPT_DIR/settings.conf"
+    sed -i.bak -E "s|^PROJECT_JAR_PATH=.*|PROJECT_JAR_PATH=\"$PROJECT_SOURCE_CODE_PATH/target/pdfbox-app-$VERSION.jar\"|" "$SCRIPT_DIR/settings.conf"
 
     # Clean build
     cd "$PROJECT_ROOT_DIR"
@@ -62,11 +62,8 @@ for COMMIT in "${COMMITS[@]}"; do
             cp "$file" "$COMMIT_REPORT_DIR/"
         fi
     done
-    rm -rf /Users/yogyagamage/Documents/KTH/theo/prod/graphhopper-new/web/graph-cache
-    rm -rf /Users/yogyagamage/Documents/KTH/theo/prod/graphhopper-new/web/.venv
-    rm -rf /Users/yogyagamage/Documents/KTH/theo/prod/graphhopper-new/web/logs
     echo "Finished commit $COMMIT"
 done
 
 # Restore original state
-git checkout master
+git checkout trunk

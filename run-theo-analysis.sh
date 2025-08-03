@@ -65,25 +65,17 @@ if [ "$MODE" = "test" ]; then
   echo "Running in TEST mode..."
   mvn test -Dtheo.argLine="$JVM_ARGS"
 else
-  echo "Running in WORKLOAD mode..."
-  echo "Setting up Python virtual environment..."
-
-    VENV_DIR=".venv"
-    PYTHON_BIN="/opt/homebrew/opt/python@3.13/bin/python3.13"
-
-    if [ ! -d "$VENV_DIR" ]; then
-      $PYTHON_BIN -m venv "$VENV_DIR"
-    fi
-
-    source "$VENV_DIR/bin/activate"
-
-    echo "Installing required Python packages..."
-    pip install --quiet psutil
-
-    echo "Running e2e workload using $E2E_PATH..."
-    python "$E2E_PATH"
-
-    deactivate
+  echo "Running e2e workload..."
+  pwd
+  mvn exec:exec \
+    -Dexec.executable=java \
+    -Dexec.args="\
+  --add-opens=java.base/java.lang=ALL-UNNAMED \
+  --add-opens=java.base/java.util=ALL-UNNAMED \
+  -XX:StartFlightRecording=name=jfrTestRecording,settings=/Users/yogyagamage/Documents/UdeM/theo/settings.jfc,filename=/Users/yogyagamage/Documents/KTH/theo/prod/pdfbox/app/jfr-report1.jfr \
+  -javaagent:/Users/yogyagamage/Documents/UdeM/theo/theo-agent/target/theo-agent-1.0-SNAPSHOT-jar-with-dependencies.jar \
+  -cp $PROJECT_JAR_PATH:. \
+  RunAllOperations"
 fi
 
 # Run Static Analyzer
