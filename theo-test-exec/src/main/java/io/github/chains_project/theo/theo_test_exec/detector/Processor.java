@@ -259,9 +259,9 @@ public class Processor {
             // In the stack trace methods invoked by JUnit appear before the client project methods. Therefore, we only
             // process until we find the methods called directly by the client project (we identify it through the
             // package name) under study.
-            if (className.startsWith(props.get("packageName"))) {
-                break;
-            }
+//            if (className.startsWith(props.get("packageName"))) {
+//                break;
+//            }
             if (methodRemovablePredicate.test(className)) {
                 continue;
             }
