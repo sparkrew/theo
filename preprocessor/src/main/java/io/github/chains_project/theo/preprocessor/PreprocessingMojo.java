@@ -63,6 +63,8 @@ public class PreprocessingMojo extends AbstractMojo {
                     int lastDot = className.lastIndexOf('.');
                     if (lastDot > 0) {
                         String packageName = className.substring(0, lastDot);
+                        if (packageName.contains("-"))
+                            continue; // Skip names with hyphens such as meta-inf, as they are not valid Java package names
                         packageToDependencies.computeIfAbsent(packageName, k -> new HashSet<>()).add(dependencyId);
                     }
                 }

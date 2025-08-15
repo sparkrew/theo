@@ -11,7 +11,7 @@ mkdir -p "$REPORTS_DIR"
 
 cd "$PROJECT_ROOT_DIR"
 
-START_COMMIT="296cf4bb80553607d15544a96bf8bf861de7bc6a"
+START_COMMIT="8ca5a45ea72cf0e7e3dab7fad01d6b89ffea9953"
 
 # Get short date format (YYYY-MM-DD)
 START_DATE=$(git show -s --format=%cd --date=short "$START_COMMIT")
@@ -55,6 +55,10 @@ for COMMIT in "${COMMITS[@]}"; do
     bash "$ANALYSIS_SCRIPT" > "$LOG_FILE" 2>&1
 
     cd "$PROJECT_SOURCE_CODE_PATH"
+
+    # Copy api server log file to commit folder
+    echo "Copying api log to $COMMIT_REPORT_DIR/"
+    cp "/Users/yogyagamage/Documents/KTH/theo/prod/DemoSite/api/api.log" "$COMMIT_REPORT_DIR/"
 
     # Copy output reports to commit folder
     for file in theo-*-report.json theo-*-report.old.json *.diff *.patch; do

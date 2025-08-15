@@ -54,7 +54,6 @@ if [[ -f "theo-test-report.json" ]]; then
   cp theo-test-report.json theo-test-report.old.json
 fi
 
-# Common JVM args
 JVM_ARGS="--add-opens=java.base/java.lang=ALL-UNNAMED \
 --add-opens=java.base/java.util=ALL-UNNAMED \
 -XX:StartFlightRecording=name=jfrTestRecording,settings=$JFR_SETTINGS_FILE_PATH,filename=$JFR_REPORT_PATH \
@@ -65,17 +64,9 @@ if [ "$MODE" = "test" ]; then
   echo "Running in TEST mode..."
   mvn test -Dtheo.argLine="$JVM_ARGS"
 else
-  echo "Running e2e workload..."
-  pwd
-  mvn exec:exec \
-    -Dexec.executable=java \
-    -Dexec.args="\
-  --add-opens=java.base/java.lang=ALL-UNNAMED \
-  --add-opens=java.base/java.util=ALL-UNNAMED \
-  -XX:StartFlightRecording=name=jfrTestRecording,settings=/Users/yogyagamage/Documents/UdeM/theo/settings.jfc,filename=/Users/yogyagamage/Documents/KTH/theo/prod/pdfbox/app/jfr-report1.jfr \
-  -javaagent:/Users/yogyagamage/Documents/UdeM/theo/theo-agent/target/theo-agent-1.0-SNAPSHOT-jar-with-dependencies.jar \
-  -cp $PROJECT_JAR_PATH:. \
-  RunAllOperations"
+  echo "Running in WORKLOAD mode..."
+  # Call demo-e2e.sh, passing JVM_ARGS as an environment variable
+  JVM_ARGS="$JVM_ARGS" /Users/yogyagamage/Documents/KTH/theo/prod/DemoSite/demo-e2e.sh
 fi
 
 # Run Static Analyzer
