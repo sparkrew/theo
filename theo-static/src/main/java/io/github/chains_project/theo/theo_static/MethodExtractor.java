@@ -235,8 +235,7 @@ public class MethodExtractor {
                 .flatMap(c -> c.getMethods().stream())
                 .filter(SootMethod::isPublic)
                 .filter(method -> "call".equals(method.getName()) || "main".equals(method.getName()) || "run".equals(method.getName()))
-                .filter(method -> method.getDeclaringClassType().getPackageName().getName().startsWith("org.apache.pdfbox.tools")) // Change here
-//                .filter(method -> method.getDeclaringClassType().getFullyQualifiedName().startsWith("org.apache.pdfbox.tools.PDFBox")) // Change here
+                .filter(method -> method.getDeclaringClassType().getPackageName().getName().startsWith("com.puppycrawl.tools.checkstyle")) // customize package name
                 .map(SootMethod::getSignature)
                 .collect(Collectors.toSet());
     }

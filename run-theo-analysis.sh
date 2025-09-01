@@ -54,19 +54,22 @@ if [[ -f "theo-test-report.json" ]]; then
   cp theo-test-report.json theo-test-report.old.json
 fi
 
-JVM_ARGS="--add-opens=java.base/java.lang=ALL-UNNAMED \
---add-opens=java.base/java.util=ALL-UNNAMED \
--XX:StartFlightRecording=name=jfrTestRecording,settings=$JFR_SETTINGS_FILE_PATH,filename=$JFR_REPORT_PATH \
--javaagent:$THEO_JAVA_AGENT_JAR_PATH"
+JVM_ARGS=(
+  --add-opens=java.base/java.lang=ALL-UNNAMED
+  --add-opens=java.base/java.util=ALL-UNNAMED
+  "-XX:StartFlightRecording=name=jfrTestRecording,settings=$JFR_SETTINGS_FILE_PATH,filename=$JFR_REPORT_PATH"
+  "-javaagent:$THEO_JAVA_AGENT_JAR_PATH"
+)
 
 # Run test or exec based on MODE
 if [ "$MODE" = "test" ]; then
   echo "Running in TEST mode..."
-  mvn test -Dtheo.argLine="$JVM_ARGS"
+  mvn test -Dtheo.argLine=$JVM_ARGS
 else
   echo "Running in WORKLOAD mode..."
   # Call demo-e2e.sh, passing JVM_ARGS as an environment variable
-  JVM_ARGS="$JVM_ARGS" /Users/yogyagamage/Documents/KTH/theo/prod/DemoSite/demo-e2e.sh
+#  JVM_ARGS="${JVM_ARGS[*]}" PROJECT_JAR_PATH="$PROJECT_JAR_PATH" /Users/yogyagamage/Documents/UdeM/theo/h2-e2e.sh
+  java "${JVM_ARGS[@]}" -jar "$PROJECT_JAR_PATH" -c /Users/yogyagamage/Documents/KTH/theo/prod/checkstyle/config.xml /Users/yogyagamage/Documents/UdeM/theo/theo-static/src/main/java/io/github/chains_project/theo/theo_static/MethodExtractor.java
 fi
 
 # Run Static Analyzer

@@ -11,7 +11,7 @@ mkdir -p "$REPORTS_DIR"
 
 cd "$PROJECT_ROOT_DIR"
 
-START_COMMIT="8ca5a45ea72cf0e7e3dab7fad01d6b89ffea9953"
+START_COMMIT="792054022a31f323e2716bf76247a5f49d104f76"
 
 # Get short date format (YYYY-MM-DD)
 START_DATE=$(git show -s --format=%cd --date=short "$START_COMMIT")

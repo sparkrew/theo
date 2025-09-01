@@ -35,7 +35,7 @@ public class Processor {
                     className.equals("java.lang.reflect.Field");
     //ToDo: This predicate must be updated to make it more applicable.
     private final Predicate<String> methodRemovablePredicate = className -> (className == null ||
-            className.contains("surefire") || className.contains("junit") || className.contains(".theo.") || className.contains("org.apache.pdfbox."));
+            className.contains("surefire") || className.contains("junit") || className.contains(".theo.") || className.contains("com.puppycrawl.tools.checkstyle")); // customize package name
     private final Logger log = LoggerFactory.getLogger(this.getClass());
 
     private final Map<String, List<SensitiveAPIDescriptor>> sensitiveApiMap;
