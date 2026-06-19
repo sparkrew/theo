@@ -1312,5 +1312,47 @@
     "method": "eval",
     "subcategory": "SCRIPTING",
     "category": "PROCESS"
+  },
+  {
+  "className" : "java.io.FileInputStream",
+  "method" : "read",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+  },
+  {
+  "className" : "java.lang.ClassLoader",
+  "method" : "loadClass",
+  "category" : "PROCESS",
+  "subcategory" : "REFLECTION"
+  },
+  {
+  "className" : "java.util.Properties",
+  "method" : "load",
+  "category" : "FILESYSTEM",
+  "subcategory" : "READ_ENV"
+  },
+  {
+  "className" : "java.security.AccessController",
+  "method" : "executePrivileged",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+  },
+  {
+  "className" : "java.security.AccessController",
+  "method" : "doPrivileged",
+  "category" : "FILESYSTEM",
+  "subcategory" : "MISCELLANEOUS"
+  },
+  {
+  "className" : "java.util.logging.Logger",
+  "method" : "demandLogger",
+  "category" : "FILESYSTEM",
+  "subcategory" : "OUTPUT"
+  },
+  {
+  "className" : "java.util.logging.Logger",
+  "method" : "getLogger",
+  "category" : "FILESYSTEM",
+  "subcategory" : "OUTPUT"
   }
 ]
