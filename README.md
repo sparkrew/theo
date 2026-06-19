@@ -20,7 +20,7 @@ It uses soot to do that.
 
 ## Usage
 
-1. Add the following congfiguration to your `pom.xml` file:
+1. When running in test mode, add the following configuration to your `pom.xml` file:
     ```xml
         <plugin>
             <groupId>org.apache.maven.plugins</groupId>
@@ -35,6 +35,7 @@ It uses soot to do that.
             </configuration>
         </plugin>
     ```
+    When running in production mode, run the workload separately with the agent and JFR attached.
 2. Set the configs in the `settings.conf` file.
 3. Execute the [`run_theo-analysis.sh`](theo-analysis.sh).
 

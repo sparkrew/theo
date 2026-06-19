@@ -50,8 +50,8 @@ public class PackageMatcher {
         String dependency = packageNames.get(0);
         if (dependency != null) {
             String[] parts = dependency.split(":");
-            if (parts.length >= 2) {
-                return parts[0] + "." + parts[1];
+            if (parts.length >= 4) {
+                return parts[0] + "." + parts[1] + ":" + parts[3];
             } else {
                 log.error("Invalid dependency format for package '{}': {}", packageName, dependency);
                 return dependency;
