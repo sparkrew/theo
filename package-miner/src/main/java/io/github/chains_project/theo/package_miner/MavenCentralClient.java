@@ -1,0 +1,289 @@
+package io.github.chains_project.theo.package_miner;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Random;
+
+/**
+ * Talks to Maven Central to discover packages and download their JARs.
+ *
+ * We use two different Maven Central endpoints:
+ * - The Solr search API (search.maven.org) to find and list packages
+ * - The repository (repo1.maven.org) to download actual JAR files
+ *
+ * All requests are rate-limited to 1 per second to be a good citizen.
+ */
+public class MavenCentralClient {
+
+    private static final Logger log = LoggerFactory.getLogger(MavenCentralClient.class);
+    private static final String SEARCH_BASE = "https://search.maven.org/solrsearch/select";
+    private static final String REPO_BASE = "https://repo1.maven.org/maven2";
+    private static final int PAGE_SIZE = 200;
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(60);
+    // Be polite to Maven Central — wait at least 1 second between search requests
+    private static final long RATE_LIMIT_MS = 1000;
+
+    private final HttpClient httpClient;
+    private final ObjectMapper mapper;
+
+    public MavenCentralClient() {
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(30))
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
+        this.mapper = new ObjectMapper();
+    }
+
+    /**
+     * Fetches the most popular packages from Maven Central, sorted by download count.
+     * We page through results since the API returns at most 200 per request.
+     *
+     * @param count how many popular packages we want (e.g. 1000)
+     * @return list of packages sorted by popularity (most downloaded first)
+     */
+    public List<PackageInfo> fetchPopularPackages(int count) throws IOException, InterruptedException {
+        log.info("Fetching top {} popular packages from Maven Central...", count);
+        List<PackageInfo> results = new ArrayList<>();
+        int fetched = 0;
+
+        while (fetched < count) {
+            int rows = Math.min(PAGE_SIZE, count - fetched);
+            // Sort by ec_count (estimated count) descending to get the most downloaded packages first
+            String url = SEARCH_BASE + "?q=*:*&rows=" + rows + "&start=" + fetched
+                    + "&wt=json&sort=ec_count+desc";
+            JsonNode response = doSearch(url);
+            JsonNode docs = response.path("response").path("docs");
+            if (docs.isEmpty()) break;
+
+            for (JsonNode doc : docs) {
+                PackageInfo info = parseDoc(doc);
+                if (info != null) {
+                    results.add(info);
+                }
+            }
+            fetched += docs.size();
+            log.info("Fetched {}/{} popular packages.", results.size(), count);
+            Thread.sleep(RATE_LIMIT_MS);
+        }
+        return results;
+    }
+
+    /**
+     * Fetches random packages from Maven Central. We do this by picking random offsets
+     * into the full package listing and grabbing a page of results from each offset.
+     *
+     * We use a fixed seed (42) for the random number generator so that the same set
+     * of "random" packages is selected every time — this makes the experiment reproducible.
+     *
+     * @param count   how many random packages we want (e.g. 1000)
+     * @param exclude packages we've already selected (the popular ones) — we skip these
+     * @return list of randomly selected packages
+     */
+    public List<PackageInfo> fetchRandomPackages(int count, List<PackageInfo> exclude)
+            throws IOException, InterruptedException {
+        log.info("Fetching {} random packages from Maven Central...", count);
+        List<PackageInfo> results = new ArrayList<>();
+
+        // Build a set of already-selected packages so we don't pick duplicates
+        var excludeSet = new java.util.HashSet<String>();
+        for (PackageInfo p : exclude) {
+            excludeSet.add(p.groupId() + ":" + p.artifactId());
+        }
+
+        // First, find out how many packages exist in total on Maven Central
+        int totalAvailable = getTotalCount();
+        Random random = new Random(42); // fixed seed for reproducibility
+        int attempts = 0;
+        int maxAttempts = count * 5; // give up if we can't find enough unique packages
+
+        while (results.size() < count && attempts < maxAttempts) {
+            // Jump to a random position in the full package listing
+            int start = random.nextInt(Math.max(1, totalAvailable - PAGE_SIZE));
+            String url = SEARCH_BASE + "?q=*:*&rows=" + PAGE_SIZE + "&start=" + start + "&wt=json";
+            JsonNode response = doSearch(url);
+            JsonNode docs = response.path("response").path("docs");
+
+            // Filter out packages we've already selected
+            List<PackageInfo> candidates = new ArrayList<>();
+            for (JsonNode doc : docs) {
+                PackageInfo info = parseDoc(doc);
+                if (info != null) {
+                    String key = info.groupId() + ":" + info.artifactId();
+                    if (!excludeSet.contains(key)) {
+                        candidates.add(info);
+                        excludeSet.add(key);
+                    }
+                }
+            }
+
+            // Shuffle the candidates so we don't always pick from the beginning of each page
+            Collections.shuffle(candidates, random);
+            for (PackageInfo c : candidates) {
+                if (results.size() >= count) break;
+                results.add(c);
+            }
+            attempts++;
+            log.info("Fetched {}/{} random packages (attempt {}).", results.size(), count, attempts);
+            Thread.sleep(RATE_LIMIT_MS);
+        }
+        return results;
+    }
+
+    /**
+     * Downloads the source JAR for a given package. If the source JAR doesn't exist
+     * (not all packages publish one), we fall back to downloading the regular binary JAR.
+     *
+     * Downloaded JARs are cached — if we already have the file on disk, we skip the download.
+     * The filename uses underscores instead of dots/colons to avoid path issues.
+     *
+     * @param pkg         the package to download
+     * @param downloadDir where to save the JAR
+     * @return path to the downloaded JAR, or null if both source and binary downloads failed
+     */
+    public Path downloadSourceJar(PackageInfo pkg, Path downloadDir)
+            throws IOException, InterruptedException {
+        Files.createDirectories(downloadDir);
+
+        // Maven Central stores artifacts in a directory structure based on the groupId,
+        // e.g. com.google.guava -> com/google/guava
+        String groupPath = pkg.groupId().replace('.', '/');
+        String jarName = pkg.artifactId() + "-" + pkg.latestVersion() + "-sources.jar";
+        String url = REPO_BASE + "/" + groupPath + "/" + pkg.artifactId()
+                + "/" + pkg.latestVersion() + "/" + jarName;
+
+        Path targetFile = downloadDir.resolve(
+                pkg.groupId() + "_" + pkg.artifactId() + "_" + pkg.latestVersion() + "-sources.jar"
+        );
+
+        // Skip download if we already have this file
+        if (Files.exists(targetFile)) {
+            log.debug("Source JAR already exists: {}", targetFile);
+            return targetFile;
+        }
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(REQUEST_TIMEOUT)
+                .GET()
+                .build();
+
+        HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        if (response.statusCode() == 200) {
+            try (InputStream body = response.body()) {
+                Files.copy(body, targetFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+            return targetFile;
+        } else {
+            // Many packages don't publish source JARs, so this is expected to happen often
+            log.warn("Failed to download source JAR for {}:{} (HTTP {}). Trying regular JAR...",
+                    pkg.groupId(), pkg.artifactId(), response.statusCode());
+            return downloadRegularJar(pkg, downloadDir);
+        }
+    }
+
+    /**
+     * Fallback: downloads the regular (compiled bytecode) JAR when source JAR is unavailable.
+     * theo-static can still analyze bytecode JARs using SootUp.
+     */
+    private Path downloadRegularJar(PackageInfo pkg, Path downloadDir)
+            throws IOException, InterruptedException {
+        String groupPath = pkg.groupId().replace('.', '/');
+        String jarName = pkg.artifactId() + "-" + pkg.latestVersion() + ".jar";
+        String url = REPO_BASE + "/" + groupPath + "/" + pkg.artifactId()
+                + "/" + pkg.latestVersion() + "/" + jarName;
+
+        Path targetFile = downloadDir.resolve(
+                pkg.groupId() + "_" + pkg.artifactId() + "_" + pkg.latestVersion() + ".jar"
+        );
+        if (Files.exists(targetFile)) {
+            return targetFile;
+        }
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(REQUEST_TIMEOUT)
+                .GET()
+                .build();
+
+        HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        if (response.statusCode() == 200) {
+            try (InputStream body = response.body()) {
+                Files.copy(body, targetFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+            return targetFile;
+        }
+        log.error("Failed to download any JAR for {}:{} (HTTP {}).",
+                pkg.groupId(), pkg.artifactId(), response.statusCode());
+        return null;
+    }
+
+    /**
+     * Asks Maven Central how many packages exist in total. We need this to pick
+     * meaningful random offsets when selecting random packages.
+     */
+    private int getTotalCount() throws IOException, InterruptedException {
+        String url = SEARCH_BASE + "?q=*:*&rows=0&wt=json";
+        JsonNode response = doSearch(url);
+        return response.path("response").path("numFound").asInt(1000000);
+    }
+
+    /**
+     * Sends a GET request to the Maven Central Solr search API and parses the JSON response.
+     * Throws if the response is not HTTP 200.
+     */
+    private JsonNode doSearch(String url) throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(REQUEST_TIMEOUT)
+                .header("Accept", "application/json")
+                .GET()
+                .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200) {
+            throw new IOException("Maven Central search returned HTTP " + response.statusCode()
+                    + " for URL: " + url);
+        }
+        return mapper.readTree(response.body());
+    }
+
+    /**
+     * Extracts package info from a single Solr search result document.
+     * The fields we care about are:
+     * - g: groupId
+     * - a: artifactId
+     * - latestVersion (or v): the latest version string
+     * - ec_count: estimated download count (for sorting by popularity)
+     */
+    private PackageInfo parseDoc(JsonNode doc) {
+        String groupId = doc.path("g").asText(null);
+        String artifactId = doc.path("a").asText(null);
+        String latestVersion = doc.path("latestVersion").asText(null);
+        if (latestVersion == null) {
+            latestVersion = doc.path("v").asText(null);
+        }
+        if (groupId == null || artifactId == null || latestVersion == null) {
+            return null;
+        }
+        long downloadCount = doc.path("ec_count").asLong(0);
+        return new PackageInfo(groupId, artifactId, latestVersion, downloadCount);
+    }
+}

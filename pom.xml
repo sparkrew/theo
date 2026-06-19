@@ -22,6 +22,7 @@
         <module>preprocessor</module>
         <module>theo-agent</module>
         <module>theo-test-exec</module>
+        <module>package-miner</module>
     </modules>
 
     <properties>
