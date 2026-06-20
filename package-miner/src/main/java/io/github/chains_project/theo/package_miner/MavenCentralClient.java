@@ -200,6 +200,49 @@ public class MavenCentralClient {
     }
 
     /**
+     * Downloads the POM file for a given package from Maven Central.
+     * We need the POM to set up a temporary Maven project so the preprocessor plugin
+     * can resolve all transitive dependencies and build the package map.
+     *
+     * @param pkg         the package whose POM we want
+     * @param downloadDir where to save the POM
+     * @return path to the downloaded POM, or null if the download failed
+     */
+    public Path downloadPom(PackageInfo pkg, Path downloadDir)
+            throws IOException, InterruptedException {
+        Files.createDirectories(downloadDir);
+        String groupPath = pkg.groupId().replace('.', '/');
+        String pomName = pkg.artifactId() + "-" + pkg.latestVersion() + ".pom";
+        String url = REPO_BASE + "/" + groupPath + "/" + pkg.artifactId()
+                + "/" + pkg.latestVersion() + "/" + pomName;
+
+        Path targetFile = downloadDir.resolve(
+                pkg.groupId() + "_" + pkg.artifactId() + "_" + pkg.latestVersion() + ".pom"
+        );
+        if (Files.exists(targetFile)) {
+            log.debug("POM already exists: {}", targetFile);
+            return targetFile;
+        }
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(REQUEST_TIMEOUT)
+                .GET()
+                .build();
+
+        HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        if (response.statusCode() == 200) {
+            try (InputStream body = response.body()) {
+                Files.copy(body, targetFile, StandardCopyOption.REPLACE_EXISTING);
+            }
+            return targetFile;
+        }
+        log.error("Failed to download POM for {}:{} (HTTP {}).",
+                pkg.groupId(), pkg.artifactId(), response.statusCode());
+        return null;
+    }
+
+    /**
      * Fallback: downloads the regular (compiled bytecode) JAR when source JAR is unavailable.
      * theo-static can still analyze bytecode JARs using SootUp.
      */

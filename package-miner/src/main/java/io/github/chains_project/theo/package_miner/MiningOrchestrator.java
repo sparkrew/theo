@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -17,21 +18,25 @@ import java.util.concurrent.atomic.AtomicInteger;
  * The pipeline has four phases:
  * 1. SELECT  — Pick 2000 packages from Maven Central (1000 popular + 1000 random)
  * 2. DOWNLOAD — Fetch the source JAR (or binary JAR) for each package
- * 3. ANALYZE — Run theo-static on each JAR to find sensitive API usage
- * 4. WRITE   — Record results in the CSV matrix and per-package path JSON files
+ * 3. PREPROCESS — Run the preprocessor to resolve dependencies and build the package map
+ * 4. ANALYZE — Run theo-static on each JAR to find sensitive API usage
  *
  * Phases 2-4 happen together for each package, parallelized across worker threads.
  * The checkpoint system ensures we can resume after interruption without re-doing work.
+ * At the end, a summary is printed showing how many packages made it through each stage.
  *
  * Output directory structure:
  *   output-dir/
- *     sensitive_api_usage.csv     — the main result: 2000 rows x 219 sensitive API columns
- *     selected_packages.json      — the list of packages we're analyzing (for reproducibility)
- *     checkpoint.json             — tracks which packages are done (for resumability)
- *     jars/                       — downloaded JAR files
- *     reports/                    — raw theo-static report JSONs (one per package)
- *     package-maps/               — minimal package map files (needed by theo-static)
- *     paths/                      — per-package JSON files with call paths to sensitive APIs
+ *     sensitive_api_usage.csv      — the main result: 2000 rows x 219 sensitive API columns
+ *     mining_summary.json          — pipeline statistics (counts at each stage)
+ *     selected_packages.json       — the 2000 selected packages (for reproducibility)
+ *     checkpoint.json              — tracks completed packages (for resumability)
+ *     jars/                        — downloaded JAR files
+ *     poms/                        — downloaded POM files
+ *     temp-projects/               — temporary Maven project dirs (for running preprocessor)
+ *     package-maps/                — generated package maps (one per package)
+ *     reports/                     — raw theo-static report JSONs (one per package)
+ *     paths/                       — per-package call path JSONs (only for packages with sensitive API usage)
  */
 public class MiningOrchestrator {
 
@@ -61,10 +66,13 @@ public class MiningOrchestrator {
             return;
         }
 
-        // Set up the three core components
+        // Set up the core components. The MavenCentralClient is shared between the
+        // orchestrator (for downloading JARs) and the analyzer (for downloading POMs).
+        MavenCentralClient client = new MavenCentralClient();
         CheckpointManager checkpoint = new CheckpointManager(outputDir);
-        PackageAnalyzer analyzer = new PackageAnalyzer(theoStaticJar, outputDir);
+        PackageAnalyzer analyzer = new PackageAnalyzer(theoStaticJar, outputDir, client);
         ResultWriter resultWriter = new ResultWriter(outputDir, analyzer.getSensitiveApiKeys());
+        MiningStats stats = new MiningStats();
 
         // Phase 1: Select packages (or load from a previous run's checkpoint)
         List<PackageInfo> allPackages = checkpoint.loadPackageList();
@@ -77,6 +85,7 @@ public class MiningOrchestrator {
             // Save the list so we analyze the same packages on resume
             checkpoint.savePackageList(allPackages);
         }
+        stats.setTotalSelected(allPackages.size());
 
         // Write the CSV header if this is a fresh run (not a resume)
         boolean csvExists = Files.exists(outputDir.resolve("sensitive_api_usage.csv"));
@@ -92,8 +101,7 @@ public class MiningOrchestrator {
         log.info("Starting analysis of {} packages with {} workers. {} already completed.",
                 allPackages.size(), workers, checkpoint.completedCount());
 
-        // Phase 2-4: Download, analyze, and record results — in parallel across workers
-        MavenCentralClient client = new MavenCentralClient();
+        // Phase 2-4: Download, preprocess, analyze, and record results — in parallel across workers
         AtomicInteger processed = new AtomicInteger(checkpoint.completedCount());
         int total = allPackages.size();
 
@@ -115,15 +123,37 @@ public class MiningOrchestrator {
                     Path jarPath = client.downloadSourceJar(pkg, downloadDir);
                     if (jarPath == null) {
                         log.warn("Skipping {} — could not download JAR.", pkg.coordinate());
-                        // Still mark as completed so we don't retry on next run
+                        stats.recordDownloadFailure();
                         checkpoint.markCompleted(pkg);
-                        resultWriter.appendResult(pkg, java.util.Collections.emptySet());
+                        resultWriter.appendResult(pkg, Collections.emptySet());
                         processed.incrementAndGet();
                         return;
                     }
+                    stats.recordDownloadSuccess();
 
-                    // Step 2: Run theo-static analysis on the JAR
+                    // Step 2: Run preprocessor + theo-static analysis on the JAR
                     PackageAnalyzer.AnalysisResult result = analyzer.analyze(pkg, jarPath);
+
+                    // Track preprocessor outcome
+                    if (result.preprocessorSucceeded()) {
+                        stats.recordPreprocessorSuccess();
+                    } else {
+                        stats.recordPreprocessorFailure();
+                    }
+
+                    // Track analyzer outcome
+                    if (result.analyzerSucceeded()) {
+                        stats.recordAnalyzerSuccess();
+                    } else {
+                        stats.recordAnalyzerFailure();
+                    }
+
+                    // Track whether the package had any sensitive APIs
+                    if (!result.detectedSensitiveApis().isEmpty()) {
+                        stats.recordWithSensitiveApis();
+                    } else {
+                        stats.recordWithoutSensitiveApis();
+                    }
 
                     // Step 3: Write the True/False row to the CSV
                     resultWriter.appendResult(pkg, result.detectedSensitiveApis());
@@ -139,7 +169,7 @@ public class MiningOrchestrator {
                     // We still mark it as completed to avoid retrying a broken package forever.
                     log.error("Error processing {}: {}", pkg.coordinate(), e.getMessage(), e);
                     checkpoint.markCompleted(pkg);
-                    resultWriter.appendResult(pkg, java.util.Collections.emptySet());
+                    resultWriter.appendResult(pkg, Collections.emptySet());
                     processed.incrementAndGet();
                 }
             }));
@@ -161,10 +191,13 @@ public class MiningOrchestrator {
         executor.shutdown();
         checkpoint.save();
 
-        log.info("Mining complete. {} packages processed. Results written to {}",
-                processed.get(), outputDir);
+        // Print and save the final pipeline summary
+        stats.printSummary(outputDir);
+
+        log.info("Results written to {}", outputDir);
         log.info("  CSV: {}", outputDir.resolve("sensitive_api_usage.csv"));
         log.info("  Paths: {}", outputDir.resolve("paths"));
+        log.info("  Summary: {}", outputDir.resolve("mining_summary.json"));
     }
 
     /**

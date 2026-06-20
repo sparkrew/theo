@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
@@ -17,10 +18,12 @@ import java.util.concurrent.TimeUnit;
  * Runs the theo-static analyzer on individual package JARs and collects the results.
  *
  * For each package, this class:
- * 1. Creates a minimal package map JSON (needed by theo-static to resolve Maven coordinates)
- * 2. Invokes theo-static as a subprocess (java -jar theo-static.jar process ...)
- * 3. Parses the resulting report JSON to extract which sensitive APIs were detected
- * 4. Writes a per-package paths JSON file listing the call paths from entry points to sensitive APIs
+ * 1. Downloads the POM and sets up a temporary Maven project directory
+ * 2. Runs the theo-preprocessor-maven-plugin to resolve all dependencies and build the package map
+ *    (the package map maps Java package names to their Maven coordinates)
+ * 3. Invokes theo-static as a subprocess to analyze the JAR for sensitive API usage
+ * 4. Parses the resulting report to extract which sensitive APIs were detected
+ * 5. Writes a per-package paths JSON file listing the call paths from entry points to sensitive APIs
  *
  * If a report already exists on disk (from a previous run), we skip re-analyzing and just
  * parse the existing report. This works together with the checkpoint system for resumability.
@@ -30,16 +33,20 @@ public class PackageAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(PackageAnalyzer.class);
     // Kill the analysis if it takes longer than 30 minutes — some packages can be very large
     private static final long ANALYSIS_TIMEOUT_MINUTES = 30;
+    // Preprocessor should be much faster — it just resolves dependencies and scans JARs
+    private static final long PREPROCESSOR_TIMEOUT_MINUTES = 10;
 
     private final Path theoStaticJar;
     private final Path outputDir;
+    private final MavenCentralClient mavenClient;
     // The 219 sensitive API identifiers (e.g. "java.io.FileInputStream.<init>"), sorted
     // for consistent CSV column ordering
     private final List<String> sensitiveApiKeys;
 
-    public PackageAnalyzer(Path theoStaticJar, Path outputDir) {
+    public PackageAnalyzer(Path theoStaticJar, Path outputDir, MavenCentralClient mavenClient) {
         this.theoStaticJar = theoStaticJar;
         this.outputDir = outputDir;
+        this.mavenClient = mavenClient;
 
         // Load the sensitive API list from theo-commons (same list used by theo-static)
         List<SensitiveAPIDescriptor> apis = APILoader.loadFromClasspath(
@@ -75,23 +82,26 @@ public class PackageAnalyzer {
             Files.createDirectories(reportFile.getParent());
         } catch (IOException e) {
             log.error("Failed to create report directory for {}", pkgKey, e);
-            return new AnalysisResult(pkg, Collections.emptySet(), null);
+            return new AnalysisResult(pkg, Collections.emptySet(), null, false, false);
         }
 
-        // If we already have a report from a previous run, just parse it instead of re-running
+        // If we already have a report from a previous run, just parse it instead of re-running.
+        // We assume both preprocessor and analyzer succeeded if a valid report exists on disk.
         if (Files.exists(reportFile) && fileSize(reportFile) > 0) {
             log.info("Report already exists for {}, parsing...", pkgKey);
-            return parseReport(pkg, reportFile);
+            return parseReport(pkg, reportFile, true, true);
         }
 
-        // theo-static requires a package map file that maps package names to Maven coordinates.
-        // Since we're analyzing packages in isolation, we create a minimal map with just this package.
-        Path packageMapPath = createMinimalPackageMap(pkg);
+        // Step 1: Generate the package map by running the preprocessor.
+        // This downloads the POM, creates a temp Maven project, and runs the preprocessor
+        // plugin to resolve all transitive dependencies.
+        Path packageMapPath = generatePackageMap(pkg);
         if (packageMapPath == null) {
-            return new AnalysisResult(pkg, Collections.emptySet(), null);
+            log.warn("Could not generate package map for {}, skipping analysis.", pkgKey);
+            return new AnalysisResult(pkg, Collections.emptySet(), null, false, false);
         }
 
-        // Run theo-static as a subprocess — same as running it from the command line
+        // Step 2: Run theo-static as a subprocess — same as running it from the command line
         try {
             ProcessBuilder pb = new ProcessBuilder(
                     "java", "-jar", theoStaticJar.toAbsolutePath().toString(),
@@ -116,42 +126,111 @@ public class PackageAnalyzer {
             if (!finished) {
                 process.destroyForcibly();
                 log.warn("Analysis timed out for {}", pkgKey);
-                return new AnalysisResult(pkg, Collections.emptySet(), null);
+                return new AnalysisResult(pkg, Collections.emptySet(), null, true, false);
             }
 
             if (process.exitValue() != 0) {
                 log.warn("Analysis failed for {} (exit code {})", pkgKey, process.exitValue());
-                return new AnalysisResult(pkg, Collections.emptySet(), null);
+                return new AnalysisResult(pkg, Collections.emptySet(), null, true, false);
             }
 
-            return parseReport(pkg, reportFile);
+            return parseReport(pkg, reportFile, true, true);
 
         } catch (Exception e) {
             log.error("Error analyzing {}", pkgKey, e);
-            return new AnalysisResult(pkg, Collections.emptySet(), null);
+            return new AnalysisResult(pkg, Collections.emptySet(), null, true, false);
         }
     }
 
     /**
-     * Creates a minimal package map JSON file for this single package.
-     * theo-static needs this to map Java package names to Maven coordinates.
-     * In our case, we just map the package's groupId to its full Maven coordinate.
+     * Generates a proper package map by running the theo-preprocessor-maven-plugin.
+     *
+     * The preprocessor is a Maven plugin that needs to run inside a Maven project context.
+     * It resolves all transitive dependencies of the project and scans each dependency JAR
+     * to map Java package names to their Maven coordinates.
+     *
+     * To make this work for a standalone package from Maven Central, we:
+     * 1. Download the package's POM file
+     * 2. Create a temporary Maven project directory with that POM
+     * 3. Run "mvn io.github.chains-project:theo-preprocessor-maven-plugin:preprocess"
+     *    in that directory, which triggers Maven's dependency resolution and produces the map
+     * 4. Return the path to the generated package-map.json
      */
-    private Path createMinimalPackageMap(PackageInfo pkg) {
-        try {
-            Path mapDir = outputDir.resolve("package-maps");
-            Files.createDirectories(mapDir);
-            Path mapFile = mapDir.resolve(
-                    pkg.groupId() + "_" + pkg.artifactId() + "_map.json"
-            );
-            Map<String, List<String>> packageMap = new HashMap<>();
-            packageMap.put(pkg.groupId(), List.of(pkg.coordinate()));
+    private Path generatePackageMap(PackageInfo pkg) {
+        String pkgKey = pkg.groupId() + "_" + pkg.artifactId() + "_" + pkg.latestVersion();
+        Path packageMapFile = outputDir.resolve("package-maps").resolve(pkgKey + "-package-map.json");
 
-            ObjectMapper mapper = new ObjectMapper();
-            mapper.writeValue(mapFile.toFile(), packageMap);
-            return mapFile;
-        } catch (IOException e) {
-            log.error("Failed to create package map for {}", pkg.coordinate(), e);
+        // If we already generated this package map in a previous run, reuse it
+        if (Files.exists(packageMapFile) && fileSize(packageMapFile) > 0) {
+            log.info("Package map already exists for {}, reusing.", pkgKey);
+            return packageMapFile;
+        }
+
+        try {
+            Files.createDirectories(packageMapFile.getParent());
+
+            // Download the POM from Maven Central
+            Path pomDir = outputDir.resolve("poms");
+            Path pomFile = mavenClient.downloadPom(pkg, pomDir);
+            if (pomFile == null) {
+                log.warn("Could not download POM for {}", pkgKey);
+                return null;
+            }
+
+            // Create a temporary Maven project directory with the POM.
+            // The preprocessor plugin needs to run in a directory that has a pom.xml
+            // so Maven can resolve the project's dependencies.
+            Path tempProjectDir = outputDir.resolve("temp-projects").resolve(pkgKey);
+            Files.createDirectories(tempProjectDir);
+            Path tempPom = tempProjectDir.resolve("pom.xml");
+            Files.copy(pomFile, tempPom, StandardCopyOption.REPLACE_EXISTING);
+
+            // Also create a minimal src directory so Maven doesn't complain
+            Files.createDirectories(tempProjectDir.resolve("src/main/java"));
+
+            // Run the preprocessor Maven plugin in the temp project directory.
+            // This will resolve all dependencies declared in the POM, scan their JARs,
+            // and write the package-to-dependency map to the output file.
+            log.info("Running preprocessor for {} to generate package map...", pkgKey);
+            ProcessBuilder pb = new ProcessBuilder(
+                    "mvn",
+                    "io.github.chains-project:theo-preprocessor-maven-plugin:1.0-SNAPSHOT:preprocess",
+                    "-DoutputFile=" + packageMapFile.toAbsolutePath()
+            );
+            pb.directory(tempProjectDir.toFile());
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            // Read Maven's output so the process doesn't hang on a full buffer
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    log.debug("[preprocessor:{}] {}", pkg.artifactId(), line);
+                }
+            }
+
+            boolean finished = process.waitFor(PREPROCESSOR_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+            if (!finished) {
+                process.destroyForcibly();
+                log.warn("Preprocessor timed out for {}", pkgKey);
+                return null;
+            }
+
+            if (process.exitValue() != 0) {
+                log.warn("Preprocessor failed for {} (exit code {})", pkgKey, process.exitValue());
+                return null;
+            }
+
+            if (Files.exists(packageMapFile) && fileSize(packageMapFile) > 0) {
+                log.info("Package map generated for {}", pkgKey);
+                return packageMapFile;
+            } else {
+                log.warn("Preprocessor ran but no package map was generated for {}", pkgKey);
+                return null;
+            }
+
+        } catch (Exception e) {
+            log.error("Error generating package map for {}", pkgKey, e);
             return null;
         }
     }
@@ -165,7 +244,8 @@ public class PackageAnalyzer {
      * a "sensitivePathResults" array where each entry has entryPoint, sensitiveAPI,
      * and the call path between them.
      */
-    private AnalysisResult parseReport(PackageInfo pkg, Path reportFile) {
+    private AnalysisResult parseReport(PackageInfo pkg, Path reportFile,
+                                       boolean preprocessorOk, boolean analyzerOk) {
         try {
             ObjectMapper mapper = new ObjectMapper();
             Map<String, Object> report = mapper.readValue(
@@ -215,11 +295,11 @@ public class PackageAnalyzer {
                 mapper.writerWithDefaultPrettyPrinter().writeValue(pathsJsonFile.toFile(), pathRecords);
             }
 
-            return new AnalysisResult(pkg, detectedApis, pathsJsonFile);
+            return new AnalysisResult(pkg, detectedApis, pathsJsonFile, preprocessorOk, analyzerOk);
 
         } catch (IOException e) {
             log.error("Failed to parse report for {}", pkg.coordinate(), e);
-            return new AnalysisResult(pkg, Collections.emptySet(), null);
+            return new AnalysisResult(pkg, Collections.emptySet(), null, preprocessorOk, analyzerOk);
         }
     }
 
@@ -232,16 +312,21 @@ public class PackageAnalyzer {
     }
 
     /**
-     * The result of analyzing a single package.
+     * The result of analyzing a single package. Tracks whether each pipeline stage succeeded
+     * so the orchestrator can count successes/failures at each step.
      *
-     * @param packageInfo          the package that was analyzed
-     * @param detectedSensitiveApis the set of sensitive API identifiers found in this package
-     * @param pathsJsonFile        path to the JSON file with detailed call paths (null if none found)
+     * @param packageInfo            the package that was analyzed
+     * @param detectedSensitiveApis  the set of sensitive API identifiers found in this package
+     * @param pathsJsonFile          path to the JSON file with detailed call paths (null if none found)
+     * @param preprocessorSucceeded  true if the preprocessor ran successfully and produced a package map
+     * @param analyzerSucceeded      true if theo-static ran successfully and produced a report
      */
     public record AnalysisResult(
             PackageInfo packageInfo,
             Set<String> detectedSensitiveApis,
-            Path pathsJsonFile
+            Path pathsJsonFile,
+            boolean preprocessorSucceeded,
+            boolean analyzerSucceeded
     ) {}
 
     /**
