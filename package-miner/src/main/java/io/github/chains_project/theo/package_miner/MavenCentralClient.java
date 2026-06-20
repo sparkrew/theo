@@ -148,22 +148,18 @@ public class MavenCentralClient {
     }
 
     /**
-     * Downloads the source JAR for a given package. If the source JAR doesn't exist
-     * (not all packages publish one), we fall back to downloading the regular binary JAR.
-     *
-     * Downloaded JARs are cached — if we already have the file on disk, we skip the download.
-     * The filename uses underscores instead of dots/colons to avoid path issues.
+     * Downloads the source JAR (-sources.jar) for a given package.
+     * Not all packages publish source JARs, so this may return null.
+     * The source JAR is used for package name extraction (contains .java files
+     * that reflect the project's own package structure without bundled dependencies).
      *
      * @param pkg         the package to download
      * @param downloadDir where to save the JAR
-     * @return path to the downloaded JAR, or null if both source and binary downloads failed
+     * @return path to the downloaded source JAR, or null if unavailable
      */
     public Path downloadSourceJar(PackageInfo pkg, Path downloadDir)
             throws IOException, InterruptedException {
         Files.createDirectories(downloadDir);
-
-        // Maven Central stores artifacts in a directory structure based on the groupId,
-        // e.g. com.google.guava -> com/google/guava
         String groupPath = pkg.groupId().replace('.', '/');
         String jarName = pkg.artifactId() + "-" + pkg.latestVersion() + "-sources.jar";
         String url = REPO_BASE + "/" + groupPath + "/" + pkg.artifactId()
@@ -172,8 +168,6 @@ public class MavenCentralClient {
         Path targetFile = downloadDir.resolve(
                 pkg.groupId() + "_" + pkg.artifactId() + "_" + pkg.latestVersion() + "-sources.jar"
         );
-
-        // Skip download if we already have this file
         if (Files.exists(targetFile)) {
             log.debug("Source JAR already exists: {}", targetFile);
             return targetFile;
@@ -191,12 +185,23 @@ public class MavenCentralClient {
                 Files.copy(body, targetFile, StandardCopyOption.REPLACE_EXISTING);
             }
             return targetFile;
-        } else {
-            // Many packages don't publish source JARs, so this is expected to happen often
-            log.warn("Failed to download source JAR for {}:{} (HTTP {}). Trying regular JAR...",
-                    pkg.groupId(), pkg.artifactId(), response.statusCode());
-            return downloadRegularJar(pkg, downloadDir);
         }
+        log.warn("Source JAR not available for {}:{} (HTTP {}).",
+                pkg.groupId(), pkg.artifactId(), response.statusCode());
+        return null;
+    }
+
+    /**
+     * Downloads the bytecode JAR (the regular packaged artifact) for a given package.
+     * This is the compiled JAR that SootUp/theo-static needs for bytecode analysis.
+     *
+     * @param pkg         the package to download
+     * @param downloadDir where to save the JAR
+     * @return path to the downloaded bytecode JAR, or null if the download failed
+     */
+    public Path downloadBytecodeJar(PackageInfo pkg, Path downloadDir)
+            throws IOException, InterruptedException {
+        return downloadRegularJar(pkg, downloadDir);
     }
 
     /**
@@ -243,8 +248,7 @@ public class MavenCentralClient {
     }
 
     /**
-     * Fallback: downloads the regular (compiled bytecode) JAR when source JAR is unavailable.
-     * theo-static can still analyze bytecode JARs using SootUp.
+     * Downloads the regular (compiled bytecode) JAR from Maven Central.
      */
     private Path downloadRegularJar(PackageInfo pkg, Path downloadDir)
             throws IOException, InterruptedException {

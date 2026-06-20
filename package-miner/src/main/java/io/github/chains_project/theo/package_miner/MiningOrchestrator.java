@@ -119,20 +119,24 @@ public class MiningOrchestrator {
                     log.info("[{}/{}] Processing {}...",
                             processed.get(), total, pkg.coordinate());
 
-                    // Step 1: Download the JAR
-                    Path jarPath = client.downloadSourceJar(pkg, downloadDir);
-                    if (jarPath == null) {
-                        log.warn("Skipping {} — could not download JAR.", pkg.coordinate());
+                    // Step 1: Download both JARs.
+                    // The bytecode JAR is required — theo-static (SootUp) needs compiled .class files.
+                    // The source JAR is optional — used for cleaner package name extraction.
+                    Path bytecodeJar = client.downloadBytecodeJar(pkg, downloadDir);
+                    if (bytecodeJar == null) {
+                        log.warn("Skipping {} — could not download bytecode JAR.", pkg.coordinate());
                         stats.recordDownloadFailure();
                         checkpoint.markCompleted(pkg);
                         resultWriter.appendResult(pkg, Collections.emptySet());
                         processed.incrementAndGet();
                         return;
                     }
+                    // Source JAR may not exist for all packages — that's OK, we'll fall back
+                    Path sourceJar = client.downloadSourceJar(pkg, downloadDir);
                     stats.recordDownloadSuccess();
 
-                    // Step 2: Run preprocessor + theo-static analysis on the JAR
-                    PackageAnalyzer.AnalysisResult result = analyzer.analyze(pkg, jarPath);
+                    // Step 2: Run preprocessor + theo-static analysis
+                    PackageAnalyzer.AnalysisResult result = analyzer.analyze(pkg, bytecodeJar, sourceJar);
 
                     // Track preprocessor outcome
                     if (result.preprocessorSucceeded()) {

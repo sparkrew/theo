@@ -68,13 +68,21 @@ public class PackageAnalyzer {
     }
 
     /**
-     * Analyzes a single package JAR for sensitive API usage.
+     * Analyzes a single package for sensitive API usage.
      *
-     * @param pkg     the package metadata (groupId, artifactId, version)
-     * @param jarPath path to the downloaded JAR file
+     * We need two JARs because they serve different purposes:
+     * - bytecodeJarPath: the compiled JAR passed to theo-static (SootUp needs bytecode)
+     * - sourceJarPath:   the sources JAR used for package name extraction (only contains
+     *                    the project's own .java files, no bundled dependencies). Can be null
+     *                    if the package doesn't publish a source JAR — we fall back to the
+     *                    bytecode JAR with dependency filtering.
+     *
+     * @param pkg              the package metadata (groupId, artifactId, version)
+     * @param bytecodeJarPath  path to the compiled/packaged JAR (for theo-static)
+     * @param sourceJarPath    path to the sources JAR (for package name extraction), or null
      * @return which sensitive APIs were found, plus the path to the detailed paths JSON file
      */
-    public AnalysisResult analyze(PackageInfo pkg, Path jarPath) {
+    public AnalysisResult analyze(PackageInfo pkg, Path bytecodeJarPath, Path sourceJarPath) {
         String pkgKey = pkg.groupId() + "_" + pkg.artifactId() + "_" + pkg.latestVersion();
         Path reportFile = outputDir.resolve("reports").resolve(pkgKey + "-report.json");
 
@@ -86,7 +94,6 @@ public class PackageAnalyzer {
         }
 
         // If we already have a report from a previous run, just parse it instead of re-running.
-        // We assume both preprocessor and analyzer succeeded if a valid report exists on disk.
         if (Files.exists(reportFile) && fileSize(reportFile) > 0) {
             log.info("Report already exists for {}, parsing...", pkgKey);
             return parseReport(pkg, reportFile, true, true);
@@ -101,25 +108,32 @@ public class PackageAnalyzer {
             return new AnalysisResult(pkg, Collections.emptySet(), null, false, false);
         }
 
-        // Step 2: Extract the project's package name(s) from the JAR's class files.
-        // We use the package map (produced by the preprocessor) to filter out dependency
-        // packages — this handles uber/fat JARs that bundle all dependencies inside.
-        Set<String> dependencyPackages = loadPackageMapKeys(packageMapPath);
-        List<String> packageNames = PackageNameExtractor.extractFromJar(jarPath, dependencyPackages);
+        // Step 2: Extract the project's package name(s).
+        // Prefer the source JAR since it only has the project's own .java files (no bundled deps).
+        // If no source JAR is available, fall back to the bytecode JAR with dependency filtering
+        // using the package map to subtract known dependency packages.
+        List<String> packageNames;
+        if (sourceJarPath != null) {
+            // Source JARs are clean — they only contain the project's own source files
+            packageNames = PackageNameExtractor.extractFromJar(sourceJarPath, Collections.emptySet());
+        } else {
+            // Bytecode JAR might be an uber JAR, so filter out dependency packages
+            Set<String> dependencyPackages = loadPackageMapKeys(packageMapPath);
+            packageNames = PackageNameExtractor.extractFromJar(bytecodeJarPath, dependencyPackages);
+        }
         if (packageNames.isEmpty()) {
-            log.warn("No package names found in JAR for {}, falling back to groupId.", pkgKey);
+            log.warn("No package names found in JARs for {}, falling back to groupId.", pkgKey);
             packageNames = List.of(pkg.groupId());
         }
-        // Pass as comma-separated string — theo-static now supports this format
         String packageNameParam = String.join(",", packageNames);
         log.info("Using package name(s) for {}: {}", pkgKey, packageNameParam);
 
-        // Step 3: Run theo-static as a subprocess — same as running it from the command line
+        // Step 3: Run theo-static on the bytecode JAR
         try {
             ProcessBuilder pb = new ProcessBuilder(
                     "java", "-jar", theoStaticJar.toAbsolutePath().toString(),
                     "process",
-                    "-j", jarPath.toAbsolutePath().toString(),
+                    "-j", bytecodeJarPath.toAbsolutePath().toString(),
                     "-p", packageNameParam,
                     "-m", packageMapPath.toAbsolutePath().toString(),
                     "-r", reportFile.toAbsolutePath().toString()

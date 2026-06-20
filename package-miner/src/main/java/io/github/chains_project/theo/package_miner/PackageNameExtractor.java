@@ -67,7 +67,10 @@ public class PackageNameExtractor {
     }
 
     /**
-     * Scans a JAR and returns all distinct package names found in .class files.
+     * Scans a JAR and returns all distinct package names.
+     * Handles both source JARs (.java files) and bytecode JARs (.class files).
+     * Source JARs are preferred because they only contain the project's own code,
+     * not bundled dependencies like uber JARs might.
      */
     private static Set<String> scanJarPackages(Path jarPath) {
         Set<String> packages = new LinkedHashSet<>();
@@ -76,13 +79,18 @@ public class PackageNameExtractor {
             while (entries.hasMoreElements()) {
                 JarEntry entry = entries.nextElement();
                 String name = entry.getName();
-                if (name.endsWith(".class") && !entry.isDirectory()
-                        && !name.startsWith("META-INF/")) {
-                    String className = name.replace('/', '.').replace(".class", "");
-                    int lastDot = className.lastIndexOf('.');
-                    if (lastDot > 0) {
-                        packages.add(className.substring(0, lastDot));
-                    }
+                if (entry.isDirectory() || name.startsWith("META-INF/")) continue;
+
+                // Handle both .java (source JAR) and .class (bytecode JAR) files
+                String suffix = null;
+                if (name.endsWith(".java")) suffix = ".java";
+                else if (name.endsWith(".class")) suffix = ".class";
+                if (suffix == null) continue;
+
+                String qualifiedName = name.replace('/', '.').replace(suffix, "");
+                int lastDot = qualifiedName.lastIndexOf('.');
+                if (lastDot > 0) {
+                    packages.add(qualifiedName.substring(0, lastDot));
                 }
             }
         } catch (IOException e) {
