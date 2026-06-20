@@ -101,13 +101,26 @@ public class PackageAnalyzer {
             return new AnalysisResult(pkg, Collections.emptySet(), null, false, false);
         }
 
-        // Step 2: Run theo-static as a subprocess — same as running it from the command line
+        // Step 2: Extract the project's package name(s) from the JAR's class files.
+        // We use the package map (produced by the preprocessor) to filter out dependency
+        // packages — this handles uber/fat JARs that bundle all dependencies inside.
+        Set<String> dependencyPackages = loadPackageMapKeys(packageMapPath);
+        List<String> packageNames = PackageNameExtractor.extractFromJar(jarPath, dependencyPackages);
+        if (packageNames.isEmpty()) {
+            log.warn("No package names found in JAR for {}, falling back to groupId.", pkgKey);
+            packageNames = List.of(pkg.groupId());
+        }
+        // Pass as comma-separated string — theo-static now supports this format
+        String packageNameParam = String.join(",", packageNames);
+        log.info("Using package name(s) for {}: {}", pkgKey, packageNameParam);
+
+        // Step 3: Run theo-static as a subprocess — same as running it from the command line
         try {
             ProcessBuilder pb = new ProcessBuilder(
                     "java", "-jar", theoStaticJar.toAbsolutePath().toString(),
                     "process",
                     "-j", jarPath.toAbsolutePath().toString(),
-                    "-p", pkg.groupId(),
+                    "-p", packageNameParam,
                     "-m", packageMapPath.toAbsolutePath().toString(),
                     "-r", reportFile.toAbsolutePath().toString()
             );
@@ -300,6 +313,24 @@ public class PackageAnalyzer {
         } catch (IOException e) {
             log.error("Failed to parse report for {}", pkg.coordinate(), e);
             return new AnalysisResult(pkg, Collections.emptySet(), null, preprocessorOk, analyzerOk);
+        }
+    }
+
+    /**
+     * Loads the keys (package names) from the preprocessor's package map JSON.
+     * These represent packages that belong to dependencies — used to filter them out
+     * when extracting the project's own package names from a potentially uber JAR.
+     */
+    private Set<String> loadPackageMapKeys(Path packageMapPath) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            Map<String, Object> map = mapper.readValue(
+                    packageMapPath.toFile(), new TypeReference<>() {}
+            );
+            return map.keySet();
+        } catch (IOException e) {
+            log.warn("Could not read package map keys from {}, dependency filtering disabled.", packageMapPath);
+            return Collections.emptySet();
         }
     }
 

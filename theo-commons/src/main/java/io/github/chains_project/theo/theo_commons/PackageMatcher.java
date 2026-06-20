@@ -79,18 +79,33 @@ public class PackageMatcher {
     }
 
     /**
-     * Loads ignored prefixes from a predefined list and adds the provided package name
+     * Loads ignored prefixes from a predefined list and adds the provided package name.
      *
+     * @param packageName A single package name to add to the ignored set.
      * @return A set of ignored prefixes.
      */
     public static Set<String> loadIgnoredPrefixes(String packageName) {
+        return loadIgnoredPrefixes(packageName == null ? List.of() : List.of(packageName));
+    }
+
+    /**
+     * Loads ignored prefixes from a predefined list and adds all provided package names.
+     * This supports multiple package names for projects that span several base packages
+     * (e.g. org.apache.pdfbox and org.apache.xmpbox).
+     *
+     * @param packageNames The package names to add to the ignored set.
+     * @return A set of ignored prefixes.
+     */
+    public static Set<String> loadIgnoredPrefixes(List<String> packageNames) {
         Set<String> prefixes = new HashSet<>(ignoredPrefixes);
-        if (packageName != null && !packageName.trim().isEmpty()) {
-            String normalizedPackage = packageName.trim();
-            if (!normalizedPackage.endsWith(".")) {
-                normalizedPackage += ".";
+        for (String packageName : packageNames) {
+            if (packageName != null && !packageName.trim().isEmpty()) {
+                String normalizedPackage = packageName.trim();
+                if (!normalizedPackage.endsWith(".")) {
+                    normalizedPackage += ".";
+                }
+                prefixes.add(normalizedPackage);
             }
-            prefixes.add(normalizedPackage);
         }
         return prefixes;
     }

@@ -40,7 +40,8 @@ public class Main {
         @CommandLine.Option(
                 names = {"-p", "--package-name"},
                 paramLabel = "PACKAGE-NAME",
-                description = "The package name of the project under consideration to filter the events.",
+                description = "The package name(s) of the project under consideration to filter the events. " +
+                        "Multiple package names can be provided as a comma-separated list.",
                 required = true
         )
         String packageName;

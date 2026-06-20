@@ -39,11 +39,15 @@ public class MethodExtractor {
      *
      * @param pathToJar    Path to the JAR file to analyze.
      * @param reportPath   Path where the analysis report will be written.
-     * @param packageName  The package name of the project under consideration to filter the events.
+     * @param packageName  The package name(s) of the project, comma-separated if multiple
+     *                     (e.g. "org.apache.pdfbox,org.apache.xmpbox").
      * @param packageMapPath Path to the package map file that contains the mapping of package names to Maven coordinates.
      */
     public static void process(String pathToJar, String reportPath, String packageName, Path packageMapPath) {
-        ignoredPrefixes = loadIgnoredPrefixes(packageName);
+        // Split comma-separated package names and load ignored prefixes for all of them.
+        // This supports both single package names (backward compatible) and multiple ones.
+        List<String> packageNames = parsePackageNames(packageName);
+        ignoredPrefixes = loadIgnoredPrefixes(packageNames);
         List<SensitiveAPIDescriptor> sensitiveAPIList = APILoader.loadFromClasspath(
                 "sensitive_apis.json", new TypeReference<>() {
                 }
@@ -52,7 +56,7 @@ public class MethodExtractor {
 
         // Start reading the jar with sootup. Here we only use the main methods as the entry points.
         JavaView view = createJavaView(pathToJar);
-        Set<MethodSignature> entryPoints = detectEntryPoints(view, packageName);
+        Set<MethodSignature> entryPoints = detectEntryPoints(view, packageNames);
         log.info("Found " + entryPoints.size() + " public methods as entry points.");
 
         AnalysisResult result = analyzeReachability(view, entryPoints, sensitiveAPIIdentifiers, packageMapPath);
@@ -226,14 +230,33 @@ public class MethodExtractor {
     }
 
     // Using all public methods as entry points is not feasible either.
-    private static Set<MethodSignature> detectEntryPoints(JavaView view, String packageName) {
+    // We filter by main methods whose declaring class belongs to one of the project's packages.
+    private static Set<MethodSignature> detectEntryPoints(JavaView view, List<String> packageNames) {
         return view.getClasses()
                 .flatMap(c -> c.getMethods().stream())
                 .filter(SootMethod::isPublic)
-                .filter(method -> "main".equals(method.getName()))
-                .filter(method -> method.getDeclaringClassType().getPackageName().getName().startsWith(packageName))
+                // .filter(method -> "main".equals(method.getName()))
+                .filter(method -> {
+                    String methodPkg = method.getDeclaringClassType().getPackageName().getName();
+                    return packageNames.stream().anyMatch(methodPkg::startsWith);
+                })
                 .map(SootMethod::getSignature)
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * Parses a comma-separated package name string into a list.
+     * Handles both single values ("org.apache.pdfbox") and multiple
+     * values ("org.apache.pdfbox,org.apache.xmpbox").
+     */
+    private static List<String> parsePackageNames(String packageName) {
+        if (packageName == null || packageName.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(packageName.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
     }
 
     private static boolean isSensitiveAPI(MethodSignature sig, Set<String> identifiers) {
