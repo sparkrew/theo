@@ -90,7 +90,7 @@ public class PackageAnalyzer {
             Files.createDirectories(reportFile.getParent());
         } catch (IOException e) {
             log.error("Failed to create report directory for {}", pkgKey, e);
-            return new AnalysisResult(pkg, Collections.emptySet(), null, false, false);
+            return new AnalysisResult(pkg, Collections.emptySet(), null, false, false, 0);
         }
 
         // If we already have a report from a previous run, just parse it instead of re-running.
@@ -105,7 +105,7 @@ public class PackageAnalyzer {
         Path packageMapPath = generatePackageMap(pkg);
         if (packageMapPath == null) {
             log.warn("Could not generate package map for {}, skipping analysis.", pkgKey);
-            return new AnalysisResult(pkg, Collections.emptySet(), null, false, false);
+            return new AnalysisResult(pkg, Collections.emptySet(), null, false, false, 0);
         }
 
         // Step 2: Extract the project's package name(s).
@@ -153,19 +153,19 @@ public class PackageAnalyzer {
             if (!finished) {
                 process.destroyForcibly();
                 log.warn("Analysis timed out for {}", pkgKey);
-                return new AnalysisResult(pkg, Collections.emptySet(), null, true, false);
+                return new AnalysisResult(pkg, Collections.emptySet(), null, true, false, 0);
             }
 
             if (process.exitValue() != 0) {
                 log.warn("Analysis failed for {} (exit code {})", pkgKey, process.exitValue());
-                return new AnalysisResult(pkg, Collections.emptySet(), null, true, false);
+                return new AnalysisResult(pkg, Collections.emptySet(), null, true, false, 0);
             }
 
             return parseReport(pkg, reportFile, true, true);
 
         } catch (Exception e) {
             log.error("Error analyzing {}", pkgKey, e);
-            return new AnalysisResult(pkg, Collections.emptySet(), null, true, false);
+            return new AnalysisResult(pkg, Collections.emptySet(), null, true, false, 0);
         }
     }
 
@@ -281,6 +281,16 @@ public class PackageAnalyzer {
             Set<String> detectedApis = new HashSet<>();
             List<PathRecord> pathRecords = new ArrayList<>();
 
+            // Extract the entry point count from the report metadata
+            int entryPointCount = 0;
+            Object metadataObj = report.get("metadata");
+            if (metadataObj instanceof Map<?, ?> metaMap) {
+                Object epCount = metaMap.get("entryPoints");
+                if (epCount instanceof Number n) {
+                    entryPointCount = n.intValue();
+                }
+            }
+
             // Parse both direct and indirect accesses from the report
             collectPaths(report.get("directAccesses"), detectedApis, pathRecords);
             collectPaths(report.get("indirectAccesses"), detectedApis, pathRecords);
@@ -295,11 +305,11 @@ public class PackageAnalyzer {
                 mapper.writerWithDefaultPrettyPrinter().writeValue(pathsJsonFile.toFile(), pathRecords);
             }
 
-            return new AnalysisResult(pkg, detectedApis, pathsJsonFile, preprocessorOk, analyzerOk);
+            return new AnalysisResult(pkg, detectedApis, pathsJsonFile, preprocessorOk, analyzerOk, entryPointCount);
 
         } catch (IOException e) {
             log.error("Failed to parse report for {}", pkg.coordinate(), e);
-            return new AnalysisResult(pkg, Collections.emptySet(), null, preprocessorOk, analyzerOk);
+            return new AnalysisResult(pkg, Collections.emptySet(), null, preprocessorOk, analyzerOk, 0);
         }
     }
 
@@ -368,13 +378,15 @@ public class PackageAnalyzer {
      * @param pathsJsonFile          path to the JSON file with detailed call paths (null if none found)
      * @param preprocessorSucceeded  true if the preprocessor ran successfully and produced a package map
      * @param analyzerSucceeded      true if the analyzer ran successfully and produced a report
+     * @param entryPointCount        number of public entry point methods found in the package
      */
     public record AnalysisResult(
             PackageInfo packageInfo,
             Set<String> detectedSensitiveApis,
             Path pathsJsonFile,
             boolean preprocessorSucceeded,
-            boolean analyzerSucceeded
+            boolean analyzerSucceeded,
+            int entryPointCount
     ) {}
 
     /**

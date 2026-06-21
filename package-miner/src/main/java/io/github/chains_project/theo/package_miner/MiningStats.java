@@ -34,6 +34,10 @@ public class MiningStats {
     private final AtomicInteger analyzerFailed = new AtomicInteger(0);
     private final AtomicInteger withSensitiveApis = new AtomicInteger(0);
     private final AtomicInteger withoutSensitiveApis = new AtomicInteger(0);
+    // Packages where the analyzer found at least one public entry point method
+    private final AtomicInteger withEntryPoints = new AtomicInteger(0);
+    // Packages with zero entry points — nothing to analyze
+    private final AtomicInteger withoutEntryPoints = new AtomicInteger(0);
 
     public void setTotalSelected(int count) {
         totalSelected.set(count);
@@ -71,6 +75,14 @@ public class MiningStats {
         withoutSensitiveApis.incrementAndGet();
     }
 
+    public void recordEntryPoints(int count) {
+        if (count > 0) {
+            withEntryPoints.incrementAndGet();
+        } else {
+            withoutEntryPoints.incrementAndGet();
+        }
+    }
+
     /**
      * Logs a human-readable summary of the pipeline statistics and writes them
      * to a JSON file so they can be referenced later.
@@ -90,6 +102,9 @@ public class MiningStats {
         log.info("  Static analyzer succeeded:             {}", analyzerSuccess.get());
         log.info("  Static analyzer failed:                {}", analyzerFailed.get());
         log.info("-------------------------------------------------------------");
+        log.info("  Packages WITH entry points:            {}", withEntryPoints.get());
+        log.info("  Packages WITHOUT entry points:         {}", withoutEntryPoints.get());
+        log.info("-------------------------------------------------------------");
         log.info("  Packages WITH sensitive APIs:          {}", withSensitiveApis.get());
         log.info("  Packages WITHOUT sensitive APIs:       {}", withoutSensitiveApis.get());
         log.info("=============================================================");
@@ -108,6 +123,8 @@ public class MiningStats {
                     preprocessorFailed.get(),
                     analyzerSuccess.get(),
                     analyzerFailed.get(),
+                    withEntryPoints.get(),
+                    withoutEntryPoints.get(),
                     withSensitiveApis.get(),
                     withoutSensitiveApis.get()
             );
@@ -130,6 +147,8 @@ public class MiningStats {
             int preprocessorFailed,
             int analyzerSuccess,
             int analyzerFailed,
+            int withEntryPoints,
+            int withoutEntryPoints,
             int withSensitiveApis,
             int withoutSensitiveApis
     ) {}

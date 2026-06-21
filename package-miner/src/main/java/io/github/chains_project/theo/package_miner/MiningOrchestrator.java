@@ -152,6 +152,9 @@ public class MiningOrchestrator {
                         stats.recordAnalyzerFailure();
                     }
 
+                    // Track whether the package had any entry points
+                    stats.recordEntryPoints(result.entryPointCount());
+
                     // Track whether the package had any sensitive APIs
                     if (!result.detectedSensitiveApis().isEmpty()) {
                         stats.recordWithSensitiveApis();
