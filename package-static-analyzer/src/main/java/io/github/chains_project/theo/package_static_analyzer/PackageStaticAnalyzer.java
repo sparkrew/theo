@@ -67,8 +67,7 @@ public class PackageStaticAnalyzer {
         // a library, any of its public methods could be called.
         Set<MethodSignature> entryPoints = view.getClasses()
                 .flatMap(c -> c.getMethods().stream())
-                .filter(SootMethod::isPublic)
-                .filter(m -> isProjectMethod(m.getDeclaringClassType().getPackageName().getName()))
+                .filter(m -> m.isPublic() || m.isProtected())
                 .map(SootMethod::getSignature)
                 .collect(Collectors.toSet());
         log.info("Found {} public methods as entry points.", entryPoints.size());
