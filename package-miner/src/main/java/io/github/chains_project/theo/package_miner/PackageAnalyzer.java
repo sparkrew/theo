@@ -36,15 +36,15 @@ public class PackageAnalyzer {
     // Preprocessor should be much faster — it just resolves dependencies and scans JARs
     private static final long PREPROCESSOR_TIMEOUT_MINUTES = 10;
 
-    private final Path theoStaticJar;
+    private final Path analyzerJar;
     private final Path outputDir;
     private final MavenCentralClient mavenClient;
     // The 219 sensitive API identifiers (e.g. "java.io.FileInputStream.<init>"), sorted
     // for consistent CSV column ordering
     private final List<String> sensitiveApiKeys;
 
-    public PackageAnalyzer(Path theoStaticJar, Path outputDir, MavenCentralClient mavenClient) {
-        this.theoStaticJar = theoStaticJar;
+    public PackageAnalyzer(Path analyzerJar, Path outputDir, MavenCentralClient mavenClient) {
+        this.analyzerJar = analyzerJar;
         this.outputDir = outputDir;
         this.mavenClient = mavenClient;
 
@@ -128,11 +128,11 @@ public class PackageAnalyzer {
         String packageNameParam = String.join(",", packageNames);
         log.info("Using package name(s) for {}: {}", pkgKey, packageNameParam);
 
-        // Step 3: Run theo-static on the bytecode JAR
+        // Step 3: Run the package-static-analyzer on the bytecode JAR
         try {
             ProcessBuilder pb = new ProcessBuilder(
-                    "java", "-jar", theoStaticJar.toAbsolutePath().toString(),
-                    "process",
+                    "java", "-jar", analyzerJar.toAbsolutePath().toString(),
+                    "analyze",
                     "-j", bytecodeJarPath.toAbsolutePath().toString(),
                     "-p", packageNameParam,
                     "-m", packageMapPath.toAbsolutePath().toString(),
@@ -145,7 +145,7 @@ public class PackageAnalyzer {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    log.debug("[theo-static:{}] {}", pkg.artifactId(), line);
+                    log.debug("[analyzer:{}] {}", pkg.artifactId(), line);
                 }
             }
 
@@ -263,13 +263,12 @@ public class PackageAnalyzer {
     }
 
     /**
-     * Reads a theo-static report JSON file and extracts:
+     * Reads a package-static-analyzer report JSON and extracts:
      * - The set of sensitive API identifiers that were detected (for the CSV)
      * - The full call paths from entry points to sensitive APIs (for the per-package JSON)
      *
-     * The report structure comes from theo-static's OutputFormatter and contains
-     * a "sensitivePathResults" array where each entry has entryPoint, sensitiveAPI,
-     * and the call path between them.
+     * The report has "directAccesses" and "indirectAccesses" arrays, each with
+     * entryPoint, sensitiveAPI, and fullPath fields.
      */
     private AnalysisResult parseReport(PackageInfo pkg, Path reportFile,
                                        boolean preprocessorOk, boolean analyzerOk) {
@@ -282,35 +281,9 @@ public class PackageAnalyzer {
             Set<String> detectedApis = new HashSet<>();
             List<PathRecord> pathRecords = new ArrayList<>();
 
-            // Walk through the sensitivePathResults array in the report
-            Object pathsObj = report.get("sensitivePathResults");
-            if (pathsObj instanceof List<?> pathsList) {
-                for (Object item : pathsList) {
-                    if (item instanceof Map<?, ?> pathMap) {
-                        String sensitiveApi = (String) pathMap.get("sensitiveAPI");
-                        String entryPoint = (String) pathMap.get("entryPoint");
-                        Object pathObj = pathMap.get("path");
-
-                        if (sensitiveApi != null) {
-                            detectedApis.add(sensitiveApi);
-                        }
-
-                        // Collect the method call chain from entry point to sensitive API
-                        List<String> pathSteps = new ArrayList<>();
-                        if (pathObj instanceof List<?> steps) {
-                            for (Object s : steps) {
-                                pathSteps.add(String.valueOf(s));
-                            }
-                        }
-
-                        pathRecords.add(new PathRecord(
-                                entryPoint != null ? entryPoint : "",
-                                sensitiveApi != null ? sensitiveApi : "",
-                                pathSteps
-                        ));
-                    }
-                }
-            }
+            // Parse both direct and indirect accesses from the report
+            collectPaths(report.get("directAccesses"), detectedApis, pathRecords);
+            collectPaths(report.get("indirectAccesses"), detectedApis, pathRecords);
 
             // Only write a paths JSON file if we actually found sensitive API accesses
             Path pathsJsonFile = null;
@@ -357,6 +330,36 @@ public class PackageAnalyzer {
     }
 
     /**
+     * Extracts paths from a "directAccesses" or "indirectAccesses" array in the report.
+     */
+    private void collectPaths(Object accessesObj, Set<String> detectedApis, List<PathRecord> pathRecords) {
+        if (!(accessesObj instanceof List<?> accessesList)) return;
+        for (Object item : accessesList) {
+            if (!(item instanceof Map<?, ?> pathMap)) continue;
+            String sensitiveApi = (String) pathMap.get("sensitiveAPI");
+            String entryPoint = (String) pathMap.get("entryPoint");
+            Object pathObj = pathMap.get("fullPath");
+
+            if (sensitiveApi != null) {
+                detectedApis.add(sensitiveApi);
+            }
+
+            List<String> pathSteps = new ArrayList<>();
+            if (pathObj instanceof List<?> steps) {
+                for (Object s : steps) {
+                    pathSteps.add(String.valueOf(s));
+                }
+            }
+
+            pathRecords.add(new PathRecord(
+                    entryPoint != null ? entryPoint : "",
+                    sensitiveApi != null ? sensitiveApi : "",
+                    pathSteps
+            ));
+        }
+    }
+
+    /**
      * The result of analyzing a single package. Tracks whether each pipeline stage succeeded
      * so the orchestrator can count successes/failures at each step.
      *
@@ -364,7 +367,7 @@ public class PackageAnalyzer {
      * @param detectedSensitiveApis  the set of sensitive API identifiers found in this package
      * @param pathsJsonFile          path to the JSON file with detailed call paths (null if none found)
      * @param preprocessorSucceeded  true if the preprocessor ran successfully and produced a package map
-     * @param analyzerSucceeded      true if theo-static ran successfully and produced a report
+     * @param analyzerSucceeded      true if the analyzer ran successfully and produced a report
      */
     public record AnalysisResult(
             PackageInfo packageInfo,

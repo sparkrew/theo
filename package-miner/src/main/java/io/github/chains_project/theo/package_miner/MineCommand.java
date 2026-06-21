@@ -37,12 +37,12 @@ public class MineCommand implements Runnable {
     int totalPackages;
 
     @CommandLine.Option(
-            names = {"-j", "--theo-static-jar"},
-            paramLabel = "THEO-STATIC-JAR",
-            description = "Path to the theo-static jar-with-dependencies JAR.",
+            names = {"-j", "--analyzer-jar"},
+            paramLabel = "ANALYZER-JAR",
+            description = "Path to the package-static-analyzer jar-with-dependencies JAR.",
             required = true
     )
-    Path theoStaticJar;
+    Path analyzerJar;
 
     @CommandLine.Option(
             names = {"-w", "--workers"},
@@ -66,7 +66,7 @@ public class MineCommand implements Runnable {
             downloadDir = outputDir.resolve("jars");
         }
         MiningOrchestrator orchestrator = new MiningOrchestrator(
-                outputDir, downloadDir, theoStaticJar, totalPackages, workers
+                outputDir, downloadDir, analyzerJar, totalPackages, workers
         );
         orchestrator.run();
     }

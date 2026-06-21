@@ -44,15 +44,15 @@ public class MiningOrchestrator {
 
     private final Path outputDir;
     private final Path downloadDir;
-    private final Path theoStaticJar;
+    private final Path analyzerJar;
     private final int totalPackages;
     private final int workers;
 
-    public MiningOrchestrator(Path outputDir, Path downloadDir, Path theoStaticJar,
+    public MiningOrchestrator(Path outputDir, Path downloadDir, Path analyzerJar,
                               int totalPackages, int workers) {
         this.outputDir = outputDir;
         this.downloadDir = downloadDir;
-        this.theoStaticJar = theoStaticJar;
+        this.analyzerJar = analyzerJar;
         this.totalPackages = totalPackages;
         this.workers = workers;
     }
@@ -70,7 +70,7 @@ public class MiningOrchestrator {
         // orchestrator (for downloading JARs) and the analyzer (for downloading POMs).
         MavenCentralClient client = new MavenCentralClient();
         CheckpointManager checkpoint = new CheckpointManager(outputDir);
-        PackageAnalyzer analyzer = new PackageAnalyzer(theoStaticJar, outputDir, client);
+        PackageAnalyzer analyzer = new PackageAnalyzer(analyzerJar, outputDir, client);
         ResultWriter resultWriter = new ResultWriter(outputDir, analyzer.getSensitiveApiKeys());
         MiningStats stats = new MiningStats();
 
