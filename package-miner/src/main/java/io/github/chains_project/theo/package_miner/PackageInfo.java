@@ -1,6 +1,5 @@
 package io.github.chains_project.theo.package_miner;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**

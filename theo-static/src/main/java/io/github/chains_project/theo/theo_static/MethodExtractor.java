@@ -1,8 +1,6 @@
 package io.github.chains_project.theo.theo_static;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
 import io.github.chains_project.theo.theo_commons.PackageMatcher;
 import io.github.chains_project.theo.theo_commons.SensitiveAPIDescriptor;
 import io.github.chains_project.theo.theo_commons.APILoader;
@@ -19,9 +17,7 @@ import sootup.core.signatures.MethodSignature;
 import sootup.java.bytecode.frontend.inputlocation.JavaClassPathAnalysisInputLocation;
 import sootup.java.core.views.JavaView;
 
-import java.io.File;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -70,10 +66,6 @@ public class MethodExtractor {
         );
 
         SensitivePathAnalysisResult analysisResult = new SensitivePathAnalysisResult(metadata, result.sensitivePathResults());
-//        Path projectRoot = Paths.get("").toAbsolutePath().getParent();
-//        Path thirdPartyMethodsJsonPath = projectRoot.resolve("theo-commons/src/main/resources/third_party_methods.json");
-//        writeThirdPartyMethodsToJson(result.thirdPartyCalls(), thirdPartyMethodsJsonPath.toFile());
-//        log.info("Third party calls written to: " + thirdPartyMethodsJsonPath);
         OutputFormatter.process(analysisResult, reportPath);
         log.info("Dependency-wise output written to: " + reportPath);
     }
@@ -310,31 +302,9 @@ public class MethodExtractor {
         return results;
     }
 
-    private static void writeThirdPartyMethodsToJson(Set<String> thirdPartyCalls, File outputFile) {
-        List<ThirdPartyMethod> methodList = thirdPartyCalls.stream().map(fullMethod -> {
-            int lastDot = fullMethod.lastIndexOf(".");
-            String className = fullMethod.substring(0, lastDot);
-            String method = fullMethod.substring(lastDot + 1);
-            return new ThirdPartyMethod(className, method);
-        }).collect(Collectors.toList());
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.enable(SerializationFeature.INDENT_OUTPUT);
-        try {
-            mapper.writeValue(outputFile, methodList);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
     private record AnalysisResult(
             Set<String> thirdPartyCalls,
             List<SensitivePathResult> sensitivePathResults
     ) {
-    }
-
-    public record ThirdPartyMethod (
-            String className,
-            String method
-    ){
     }
 }
