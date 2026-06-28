@@ -43,3 +43,6 @@ build/
 aop.xml
 aopconfig.jar
 settings.conf
+
+### outputs ###
+package-miner/outputs/*

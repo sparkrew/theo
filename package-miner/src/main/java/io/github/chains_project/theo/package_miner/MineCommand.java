@@ -59,6 +59,23 @@ public class MineCommand implements Runnable {
     )
     Path downloadDir;
 
+    @CommandLine.Option(
+            names = {"--analyze-all-versions"},
+            paramLabel = "BOOL",
+            description = "Analyze all versions released in the last 2 years for packages with sensitive APIs. " +
+                    "Default: true. Set to false to only analyze the latest version.",
+            defaultValue = "true"
+    )
+    boolean analyzeAllVersions;
+
+    @CommandLine.Option(
+            names = {"--version-history-years"},
+            paramLabel = "YEARS",
+            description = "How many years back to look for version history. Default: 2.",
+            defaultValue = "2"
+    )
+    int versionHistoryYears;
+
     @Override
     public void run() {
         // If the user didn't specify a download directory, put JARs inside the output folder
@@ -66,7 +83,8 @@ public class MineCommand implements Runnable {
             downloadDir = outputDir.resolve("jars");
         }
         MiningOrchestrator orchestrator = new MiningOrchestrator(
-                outputDir, downloadDir, analyzerJar, totalPackages, workers
+                outputDir, downloadDir, analyzerJar, totalPackages, workers,
+                analyzeAllVersions, versionHistoryYears
         );
         orchestrator.run();
     }

@@ -15,6 +15,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -278,6 +280,73 @@ public class MavenCentralClient {
         log.error("Failed to download any JAR for {}:{} (HTTP {}).",
                 pkg.groupId(), pkg.artifactId(), response.statusCode());
         return null;
+    }
+
+    /**
+     * Fetches all versions of a package released within the last {@code years} years.
+     * Uses the Maven Central Solr API with core=gav to list all GAV combinations,
+     * then filters by timestamp.
+     *
+     * @param groupId    the groupId of the package
+     * @param artifactId the artifactId of the package
+     * @param years      how many years back to look (e.g. 2)
+     * @return list of VersionInfo, sorted oldest to newest by timestamp
+     */
+    public List<VersionInfo> fetchVersions(String groupId, String artifactId, int years)
+            throws IOException, InterruptedException {
+        long cutoffMs = Instant.now().minus(years * 365L, ChronoUnit.DAYS).toEpochMilli();
+        List<VersionInfo> versions = new ArrayList<>();
+        int start = 0;
+
+        while (true) {
+            String url = SEARCH_BASE + "?q=g:" + groupId + "+AND+a:" + artifactId
+                    + "&core=gav&rows=" + PAGE_SIZE + "&start=" + start + "&wt=json";
+            JsonNode response = doSearch(url);
+            JsonNode docs = response.path("response").path("docs");
+            if (docs.isEmpty()) break;
+
+            for (JsonNode doc : docs) {
+                String version = doc.path("v").asText(null);
+                long timestamp = doc.path("timestamp").asLong(0);
+                if (version != null && timestamp >= cutoffMs) {
+                    versions.add(new VersionInfo(groupId, artifactId, version, timestamp));
+                }
+            }
+            start += docs.size();
+            int numFound = response.path("response").path("numFound").asInt(0);
+            if (start >= numFound) break;
+            Thread.sleep(RATE_LIMIT_MS);
+        }
+
+        versions.sort((a, b) -> Long.compare(a.timestamp(), b.timestamp()));
+        return versions;
+    }
+
+    /**
+     * Downloads the bytecode JAR for a specific version of a package.
+     */
+    public Path downloadBytecodeJarForVersion(VersionInfo version, Path downloadDir)
+            throws IOException, InterruptedException {
+        PackageInfo pkg = new PackageInfo(version.groupId(), version.artifactId(), version.version(), 0);
+        return downloadBytecodeJar(pkg, downloadDir);
+    }
+
+    /**
+     * Downloads the source JAR for a specific version of a package.
+     */
+    public Path downloadSourceJarForVersion(VersionInfo version, Path downloadDir)
+            throws IOException, InterruptedException {
+        PackageInfo pkg = new PackageInfo(version.groupId(), version.artifactId(), version.version(), 0);
+        return downloadSourceJar(pkg, downloadDir);
+    }
+
+    /**
+     * Downloads the POM for a specific version of a package.
+     */
+    public Path downloadPomForVersion(VersionInfo version, Path downloadDir)
+            throws IOException, InterruptedException {
+        PackageInfo pkg = new PackageInfo(version.groupId(), version.artifactId(), version.version(), 0);
+        return downloadPom(pkg, downloadDir);
     }
 
     /**

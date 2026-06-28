@@ -47,14 +47,19 @@ public class MiningOrchestrator {
     private final Path analyzerJar;
     private final int totalPackages;
     private final int workers;
+    private final boolean analyzeAllVersions;
+    private final int versionHistoryYears;
 
     public MiningOrchestrator(Path outputDir, Path downloadDir, Path analyzerJar,
-                              int totalPackages, int workers) {
+                              int totalPackages, int workers,
+                              boolean analyzeAllVersions, int versionHistoryYears) {
         this.outputDir = outputDir;
         this.downloadDir = downloadDir;
         this.analyzerJar = analyzerJar;
         this.totalPackages = totalPackages;
         this.workers = workers;
+        this.analyzeAllVersions = analyzeAllVersions;
+        this.versionHistoryYears = versionHistoryYears;
     }
 
     public void run() {
@@ -152,14 +157,16 @@ public class MiningOrchestrator {
                         stats.recordAnalyzerFailure();
                     }
 
-                    // Track whether the package had any entry points
-                    stats.recordEntryPoints(result.entryPointCount());
+                    // Only track entry points and sensitive API counts for successful analyses.
+                    // Failed analyses produce empty results that would skew the stats.
+                    if (result.analyzerSucceeded()) {
+                        stats.recordEntryPoints(result.entryPointCount());
 
-                    // Track whether the package had any sensitive APIs
-                    if (!result.detectedSensitiveApis().isEmpty()) {
-                        stats.recordWithSensitiveApis();
-                    } else {
-                        stats.recordWithoutSensitiveApis();
+                        if (!result.detectedSensitiveApis().isEmpty()) {
+                            stats.recordWithSensitiveApis();
+                        } else {
+                            stats.recordWithoutSensitiveApis();
+                        }
                     }
 
                     // Step 3: Write the True/False row to the CSV
@@ -198,6 +205,13 @@ public class MiningOrchestrator {
         executor.shutdown();
         checkpoint.save();
 
+        // Phase 5 (optional): Version history analysis
+        // For packages that have sensitive APIs, analyze all versions from the last N years
+        // and track how permissions changed over time.
+        if (analyzeAllVersions) {
+            runVersionHistoryAnalysis(allPackages, client, analyzer);
+        }
+
         // Print and save the final pipeline summary
         stats.printSummary(outputDir);
 
@@ -205,6 +219,10 @@ public class MiningOrchestrator {
         log.info("  CSV: {}", outputDir.resolve("sensitive_api_usage.csv"));
         log.info("  Paths: {}", outputDir.resolve("paths"));
         log.info("  Summary: {}", outputDir.resolve("mining_summary.json"));
+        if (analyzeAllVersions) {
+            log.info("  Version history: {}", outputDir.resolve("version-history"));
+            log.info("  Visualization: {}", outputDir.resolve("permission_changes_report.html"));
+        }
     }
 
     /**
@@ -232,6 +250,152 @@ public class MiningOrchestrator {
         } catch (Exception e) {
             log.error("Failed to fetch packages from Maven Central.", e);
             return null;
+        }
+    }
+
+    /**
+     * Phase 5: For each package that had sensitive API usage, fetch all versions
+     * from the last N years, analyze each version, and track permission changes.
+     * Generates a per-package version history JSON and an HTML visualization.
+     */
+    private void runVersionHistoryAnalysis(List<PackageInfo> allPackages,
+                                           MavenCentralClient client,
+                                           PackageAnalyzer analyzer) {
+        // Find packages that had sensitive APIs (they have a report with non-empty results)
+        List<PackageInfo> packagesWithApis = new ArrayList<>();
+        for (PackageInfo pkg : allPackages) {
+            String pkgKey = pkg.groupId() + "_" + pkg.artifactId() + "_" + pkg.latestVersion();
+            Path reportFile = outputDir.resolve("reports").resolve(pkgKey + "-report.json");
+            if (java.nio.file.Files.exists(reportFile) && fileSize(reportFile) > 0) {
+                Path pathsFile = outputDir.resolve("paths").resolve(pkgKey + "-paths.json");
+                if (java.nio.file.Files.exists(pathsFile)) {
+                    packagesWithApis.add(pkg);
+                }
+            }
+        }
+
+        if (packagesWithApis.isEmpty()) {
+            log.info("No packages with sensitive APIs found. Skipping version history analysis.");
+            return;
+        }
+
+        log.info("=============================================================");
+        log.info("  VERSION HISTORY ANALYSIS: {} packages with sensitive APIs", packagesWithApis.size());
+        log.info("  Looking back {} years for version history.", versionHistoryYears);
+        log.info("=============================================================");
+
+        VersionHistoryTracker tracker = new VersionHistoryTracker();
+        AtomicInteger vhProcessed = new AtomicInteger(0);
+        int vhTotal = packagesWithApis.size();
+
+        ExecutorService vhExecutor = Executors.newFixedThreadPool(workers);
+        List<Future<?>> vhFutures = new ArrayList<>();
+
+        for (PackageInfo pkg : packagesWithApis) {
+            vhFutures.add(vhExecutor.submit(() -> {
+                try {
+                    int done = vhProcessed.incrementAndGet();
+                    log.info("[VH {}/{}] Fetching versions for {}:{}...",
+                            done, vhTotal, pkg.groupId(), pkg.artifactId());
+
+                    List<VersionInfo> versions = client.fetchVersions(
+                            pkg.groupId(), pkg.artifactId(), versionHistoryYears);
+
+                    if (versions.size() <= 1) {
+                        log.info("[VH {}/{}] {}:{} has only {} version(s) in the last {} years, skipping.",
+                                done, vhTotal, pkg.groupId(), pkg.artifactId(),
+                                versions.size(), versionHistoryYears);
+                        return;
+                    }
+
+                    log.info("[VH {}/{}] Analyzing {} versions of {}:{}...",
+                            done, vhTotal, versions.size(), pkg.groupId(), pkg.artifactId());
+
+                    List<VersionHistoryTracker.VersionReportEntry> reportEntries = new ArrayList<>();
+
+                    for (VersionInfo ver : versions) {
+                        Path reportFile = analyzeVersion(ver, client, analyzer);
+                        if (reportFile != null) {
+                            reportEntries.add(new VersionHistoryTracker.VersionReportEntry(
+                                    ver.version(), ver.timestamp(), reportFile));
+                        }
+                    }
+
+                    if (reportEntries.size() >= 2) {
+                        VersionHistory.PackageVersionHistory history =
+                                tracker.buildHistory(pkg.groupId(), pkg.artifactId(), reportEntries);
+                        tracker.saveHistory(history, outputDir);
+                        log.info("[VH {}/{}] {}:{} — {} versions analyzed, changes: {}",
+                                done, vhTotal, pkg.groupId(), pkg.artifactId(),
+                                reportEntries.size(), history.hasPermissionChanges());
+                    }
+                } catch (Exception e) {
+                    log.error("Error during version history analysis of {}:{}",
+                            pkg.groupId(), pkg.artifactId(), e);
+                }
+            }));
+        }
+
+        for (Future<?> f : vhFutures) {
+            try {
+                f.get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.error("Interrupted during version history analysis.", e);
+                break;
+            } catch (ExecutionException e) {
+                log.error("Version history task failed.", e);
+            }
+        }
+        vhExecutor.shutdown();
+
+        // Generate the HTML visualization from all version-history JSONs
+        try {
+            new VersionHistoryVisualizer().generateReport(outputDir);
+        } catch (IOException e) {
+            log.error("Failed to generate version history visualization.", e);
+        }
+
+        log.info("Version history analysis complete.");
+    }
+
+    /**
+     * Analyzes a specific version of a package and returns the report file path.
+     * Reuses existing reports if available.
+     */
+    private Path analyzeVersion(VersionInfo ver, MavenCentralClient client, PackageAnalyzer analyzer) {
+        String pkgKey = ver.groupId() + "_" + ver.artifactId() + "_" + ver.version();
+        Path reportFile = outputDir.resolve("reports").resolve(pkgKey + "-report.json");
+
+        if (java.nio.file.Files.exists(reportFile) && fileSize(reportFile) > 0) {
+            return reportFile;
+        }
+
+        try {
+            Path bytecodeJar = client.downloadBytecodeJarForVersion(ver, downloadDir);
+            if (bytecodeJar == null) {
+                log.debug("Could not download bytecode JAR for {}", ver.coordinate());
+                return null;
+            }
+            Path sourceJar = client.downloadSourceJarForVersion(ver, downloadDir);
+
+            PackageInfo versionAsPkg = ver.toPackageInfo();
+            PackageAnalyzer.AnalysisResult result = analyzer.analyze(versionAsPkg, bytecodeJar, sourceJar);
+
+            if (result.analyzerSucceeded() && java.nio.file.Files.exists(reportFile)) {
+                return reportFile;
+            }
+        } catch (Exception e) {
+            log.debug("Failed to analyze version {}: {}", ver.coordinate(), e.getMessage());
+        }
+        return null;
+    }
+
+    private long fileSize(Path file) {
+        try {
+            return java.nio.file.Files.size(file);
+        } catch (IOException e) {
+            return 0;
         }
     }
 }
