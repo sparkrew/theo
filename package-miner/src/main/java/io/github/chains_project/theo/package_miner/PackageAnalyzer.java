@@ -170,6 +170,82 @@ public class PackageAnalyzer {
     }
 
     /**
+     * Analyzes a module from a cloned GitHub project where the JAR and package map
+     * are already built. Skips POM download and preprocessor (already done by ProjectBuilder).
+     *
+     * @param groupId        the module's groupId
+     * @param artifactId     the module's artifactId
+     * @param version        the module's version
+     * @param jarPath        path to the built JAR
+     * @param packageMapPath path to the generated package-map.json
+     * @return analysis result with detected sensitive APIs
+     */
+    public AnalysisResult analyzeFromProject(String groupId, String artifactId, String version,
+                                             Path jarPath, Path packageMapPath) {
+        PackageInfo pkg = new PackageInfo(groupId, artifactId, version, 0);
+        String pkgKey = groupId + "_" + artifactId + "_" + version;
+        Path reportFile = outputDir.resolve("reports").resolve(pkgKey + "-report.json");
+
+        try {
+            Files.createDirectories(reportFile.getParent());
+        } catch (IOException e) {
+            log.error("Failed to create report directory for {}", pkgKey, e);
+            return new AnalysisResult(pkg, Collections.emptySet(), null, true, false, 0);
+        }
+
+        if (Files.exists(reportFile) && fileSize(reportFile) > 0) {
+            log.info("Report already exists for {}, parsing...", pkgKey);
+            return parseReport(pkg, reportFile, true, true);
+        }
+
+        // Extract package names from the JAR
+        Set<String> dependencyPackages = loadPackageMapKeys(packageMapPath);
+        List<String> packageNames = PackageNameExtractor.extractFromJar(jarPath, dependencyPackages);
+        if (packageNames.isEmpty()) {
+            log.warn("No package names found for {}, falling back to groupId.", pkgKey);
+            packageNames = List.of(groupId);
+        }
+        String packageNameParam = String.join(",", packageNames);
+
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    "java", "-jar", analyzerJar.toAbsolutePath().toString(),
+                    "analyze",
+                    "-j", jarPath.toAbsolutePath().toString(),
+                    "-p", packageNameParam,
+                    "-m", packageMapPath.toAbsolutePath().toString(),
+                    "-r", reportFile.toAbsolutePath().toString()
+            );
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    log.debug("[analyzer:{}] {}", artifactId, line);
+                }
+            }
+
+            boolean finished = process.waitFor(ANALYSIS_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+            if (!finished) {
+                process.destroyForcibly();
+                log.warn("Analysis timed out for {}", pkgKey);
+                return new AnalysisResult(pkg, Collections.emptySet(), null, true, false, 0);
+            }
+
+            if (process.exitValue() != 0) {
+                log.warn("Analysis failed for {} (exit code {})", pkgKey, process.exitValue());
+                return new AnalysisResult(pkg, Collections.emptySet(), null, true, false, 0);
+            }
+
+            return parseReport(pkg, reportFile, true, true);
+        } catch (Exception e) {
+            log.error("Error analyzing {}", pkgKey, e);
+            return new AnalysisResult(pkg, Collections.emptySet(), null, true, false, 0);
+        }
+    }
+
+    /**
      * Generates a proper package map by running the theo-preprocessor-maven-plugin.
      *
      * The preprocessor is a Maven plugin that needs to run inside a Maven project context.

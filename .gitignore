@@ -46,3 +46,4 @@ settings.conf
 
 ### outputs ###
 package-miner/outputs/*
+tokens.txt
