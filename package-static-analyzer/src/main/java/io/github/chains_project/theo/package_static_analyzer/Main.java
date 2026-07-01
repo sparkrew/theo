@@ -72,9 +72,17 @@ public class Main {
         )
         Path packageMapPath;
 
+        @CommandLine.Option(
+                names = {"-d", "--deps-dir"},
+                paramLabel = "DEPS-DIR",
+                description = "Directory containing dependency JARs. When provided, SootUp loads " +
+                        "the full classpath (project JAR + all deps) for complete call graph construction."
+        )
+        Path depsDir;
+
         @Override
         public void run() {
-            PackageStaticAnalyzer.process(jarPath, reportFile, packageName, packageMapPath);
+            PackageStaticAnalyzer.process(jarPath, reportFile, packageName, packageMapPath, depsDir);
         }
     }
 }

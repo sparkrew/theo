@@ -14,6 +14,10 @@ import sootup.core.signatures.MethodSignature;
 import sootup.java.bytecode.frontend.inputlocation.JavaClassPathAnalysisInputLocation;
 import sootup.java.core.views.JavaView;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -47,11 +51,11 @@ public class PackageStaticAnalyzer {
      * @param packageName    comma-separated package name(s) of the package being analyzed
      * @param packageMapPath path to the package map JSON (package → Maven coordinate)
      */
-    public static void process(String pathToJar, String reportPath, String packageName, Path packageMapPath) {
+    public static void process(String pathToJar, String reportPath, String packageName,
+                               Path packageMapPath, Path depsDir) {
         projectPackages = parsePackageNames(packageName);
         log.info("Analyzing package(s): {}", projectPackages);
 
-        // Load the 219 sensitive API identifiers
         List<SensitiveAPIDescriptor> sensitiveAPIList = APILoader.loadFromClasspath(
                 "sensitive_apis.json", new TypeReference<>() {}
         );
@@ -59,13 +63,13 @@ public class PackageStaticAnalyzer {
                 .map(desc -> desc.className() + "." + desc.method())
                 .collect(Collectors.toSet());
 
-        // Build the call graph from the JAR
-        JavaView view = createJavaView(pathToJar);
+        JavaView view = createJavaView(pathToJar, depsDir);
 
-        // Entry points are all public methods belonging to the package's own code.
-        // We use all public methods (not just main) because when a package is used as
-        // a library, any of its public methods could be called.
+        // Entry points: only public/protected methods from the project's own packages.
+        // When dependency JARs are loaded, we must filter out dependency classes —
+        // otherwise we'd analyze every dependency method as an entry point.
         Set<MethodSignature> entryPoints = view.getClasses()
+                .filter(c -> isProjectMethod(c.getType().getPackageName().getName()))
                 .flatMap(c -> c.getMethods().stream())
                 .filter(m -> m.isPublic() || m.isProtected())
                 .map(SootMethod::getSignature)
@@ -167,8 +171,21 @@ public class PackageStaticAnalyzer {
         return projectPackages.stream().anyMatch(packageName::startsWith);
     }
 
-    private static JavaView createJavaView(String pathToJar) {
-        AnalysisInputLocation inputLocation = new JavaClassPathAnalysisInputLocation(pathToJar);
+    private static JavaView createJavaView(String pathToJar, Path depsDir) {
+        String classpath = pathToJar;
+        if (depsDir != null && Files.isDirectory(depsDir)) {
+            StringBuilder sb = new StringBuilder(pathToJar);
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(depsDir, "*.jar")) {
+                for (Path jar : stream) {
+                    sb.append(File.pathSeparator).append(jar.toAbsolutePath());
+                }
+            } catch (IOException e) {
+                log.warn("Failed to list dependency JARs in {}: {}", depsDir, e.getMessage());
+            }
+            classpath = sb.toString();
+            log.info("Using classpath with {} entries.", classpath.split(File.pathSeparator).length);
+        }
+        AnalysisInputLocation inputLocation = new JavaClassPathAnalysisInputLocation(classpath);
         return new JavaView(inputLocation);
     }
 

@@ -120,7 +120,8 @@ class PackageStaticAnalyzerTest {
                 jarPath.toString(),
                 reportFile,
                 packageNames,
-                packageMapPath
+                packageMapPath,
+                null
         );
 
         // Step 4: Verify the report was created and is non-empty

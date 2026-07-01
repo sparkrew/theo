@@ -148,59 +148,43 @@ public class MavenCentralClient {
     }
 
     /**
-     * Fetches popular Java packages from Maven Central that have a GitHub SCM link in their POM.
-     * Filters out Kotlin/Scala packages and packages not updated since the cutoff year.
-     * Pages through results sorted by popularity until enough unique GitHub URLs are collected.
+     * Fetches popular Java packages from Maven Central, filtering out Kotlin/Scala
+     * and packages not updated since the cutoff year. No POM download during selection —
+     * only quick groupId/artifactId language filtering.
      *
-     * @param targetGitHubUrls  how many unique GitHub repo URLs we need
-     * @param pomCacheDir       directory to cache downloaded POM files
-     * @param cutoffYear        skip packages not updated since this year (e.g. 2021)
-     * @return list of PackageInfo with scmUrl populated, sorted by popularity
+     * Popularity is based on ordinal position (Solr sorts by ec_count but does not
+     * return it as a response field).
      */
-    /**
-     * Result of the package discovery phase, including tracking lists.
-     */
-    public record DiscoveryResult(
-            List<PackageInfo> packagesWithGitHub,
-            List<PackageInfo> packagesNoScm,
-            List<PackageInfo> packagesNonGitHubScm
-    ) {}
-
-    public DiscoveryResult fetchPopularJavaPackages(int targetGitHubUrls, Path pomCacheDir, int cutoffYear)
+    public List<PackageInfo> fetchPopularJavaPackages(int count, int cutoffYear)
             throws IOException, InterruptedException {
-        Files.createDirectories(pomCacheDir);
         long cutoffTimestamp = java.time.LocalDate.of(cutoffYear, 1, 1)
                 .atStartOfDay(java.time.ZoneOffset.UTC).toInstant().toEpochMilli();
 
         List<PackageInfo> results = new ArrayList<>();
-        List<PackageInfo> noScmList = new ArrayList<>();
-        List<PackageInfo> nonGitHubScmList = new ArrayList<>();
-        var seenGitHubUrls = new java.util.HashSet<String>();
         int fetched = 0;
-        int checked = 0;
-        int skippedLanguage = 0, skippedOld = 0, skippedKotlinScalaPom = 0;
+        long popularityRank = 0;
+        int skippedLanguage = 0, skippedOld = 0;
 
-        log.info("Fetching popular Java packages with GitHub SCM (target: {} unique repos)...", targetGitHubUrls);
+        log.info("Fetching top {} popular Java packages...", count);
 
-        while (seenGitHubUrls.size() < targetGitHubUrls) {
+        while (results.size() < count) {
             int rows = PAGE_SIZE;
             String url = SEARCH_BASE + "?q=*:*&rows=" + rows + "&start=" + fetched
                     + "&wt=json&sort=ec_count+desc";
             JsonNode response = doSearch(url);
             JsonNode docs = response.path("response").path("docs");
             if (docs.isEmpty()) {
-                log.warn("No more packages available from Maven Central after {} entries.", fetched);
+                log.warn("No more packages available after {} entries.", fetched);
                 break;
             }
 
             for (JsonNode doc : docs) {
-                checked++;
+                popularityRank++;
                 String groupId = doc.path("g").asText(null);
                 String artifactId = doc.path("a").asText(null);
                 String latestVersion = doc.path("latestVersion").asText(null);
                 if (latestVersion == null) latestVersion = doc.path("v").asText(null);
                 long timestamp = doc.path("timestamp").asLong(0);
-                long downloadCount = doc.path("ec_count").asLong(0);
 
                 if (groupId == null || artifactId == null || latestVersion == null) continue;
 
@@ -214,82 +198,20 @@ public class MavenCentralClient {
                     continue;
                 }
 
-                Path pomFile = downloadPomForCheck(groupId, artifactId, latestVersion, pomCacheDir);
-                if (pomFile == null) continue;
+                long popularity = Long.MAX_VALUE - popularityRank;
+                results.add(new PackageInfo(groupId, artifactId, latestVersion, popularity));
 
-                if (ScmExtractor.isKotlinOrScala(pomFile)) {
-                    skippedKotlinScalaPom++;
-                    continue;
-                }
-
-                ScmExtractor.ScmResult scmResult = ScmExtractor.extractScmInfo(pomFile);
-
-                switch (scmResult.status()) {
-                    case NO_SCM_TAG -> {
-                        noScmList.add(new PackageInfo(groupId, artifactId, latestVersion, downloadCount));
-                        continue;
-                    }
-                    case NON_GITHUB_SCM -> {
-                        nonGitHubScmList.add(new PackageInfo(groupId, artifactId, latestVersion,
-                                downloadCount, scmResult.rawScmUrl()));
-                        continue;
-                    }
-                    case GITHUB -> {
-                        String githubUrl = scmResult.githubUrl();
-                        if (!seenGitHubUrls.add(githubUrl.toLowerCase())) {
-                            results.add(new PackageInfo(groupId, artifactId, latestVersion, downloadCount, githubUrl));
-                            continue;
-                        }
-                        results.add(new PackageInfo(groupId, artifactId, latestVersion, downloadCount, githubUrl));
-                    }
-                }
+                if (results.size() >= count) break;
             }
 
             fetched += docs.size();
-            log.info("Progress: {} GitHub URLs from {} checked | {} no-SCM, {} non-GitHub SCM, {} old, {} non-Java",
-                    seenGitHubUrls.size(), checked, noScmList.size(), nonGitHubScmList.size(),
-                    skippedOld, skippedLanguage + skippedKotlinScalaPom);
+            log.info("Fetched {}/{} packages ({} old, {} non-Java skipped).",
+                    results.size(), count, skippedOld, skippedLanguage);
             Thread.sleep(RATE_LIMIT_MS);
         }
 
-        log.info("Selection complete: {} packages with {} unique GitHub repos | "
-                        + "{} no-SCM, {} non-GitHub SCM | checked {} total "
-                        + "(skipped: {} old, {} language-quick, {} kotlin/scala-pom)",
-                results.size(), seenGitHubUrls.size(),
-                noScmList.size(), nonGitHubScmList.size(),
-                checked, skippedOld, skippedLanguage, skippedKotlinScalaPom);
-        return new DiscoveryResult(results, noScmList, nonGitHubScmList);
-    }
-
-    /**
-     * Downloads a POM file for inspection (SCM/language check) during package selection.
-     */
-    private Path downloadPomForCheck(String groupId, String artifactId, String version, Path pomCacheDir) {
-        String groupPath = groupId.replace('.', '/');
-        String pomName = artifactId + "-" + version + ".pom";
-        String url = REPO_BASE + "/" + groupPath + "/" + artifactId + "/" + version + "/" + pomName;
-
-        Path targetFile = pomCacheDir.resolve(groupId + "_" + artifactId + "_" + version + ".pom");
-        if (Files.exists(targetFile)) return targetFile;
-
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .timeout(REQUEST_TIMEOUT)
-                    .GET()
-                    .build();
-
-            HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
-            if (response.statusCode() == 200) {
-                try (InputStream body = response.body()) {
-                    Files.copy(body, targetFile, StandardCopyOption.REPLACE_EXISTING);
-                }
-                return targetFile;
-            }
-        } catch (Exception e) {
-            log.debug("Failed to download POM for {}:{}:{}", groupId, artifactId, version);
-        }
-        return null;
+        log.info("Selected {} packages.", results.size());
+        return results;
     }
 
     /**

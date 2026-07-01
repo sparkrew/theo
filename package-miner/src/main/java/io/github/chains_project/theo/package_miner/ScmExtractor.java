@@ -103,6 +103,28 @@ public class ScmExtractor {
     }
 
     /**
+     * Extracts the parent POM coordinates (groupId, artifactId, version) from a POM file.
+     * Returns null if no parent is declared.
+     */
+    public static String[] extractParentCoordinates(Path pomFile) {
+        try {
+            Document doc = parsePomDoc(pomFile);
+            NodeList parentNodes = doc.getElementsByTagName("parent");
+            if (parentNodes.getLength() == 0) return null;
+
+            Element parent = (Element) parentNodes.item(0);
+            String groupId = getChildText(parent, "groupId");
+            String artifactId = getChildText(parent, "artifactId");
+            String version = getChildText(parent, "version");
+
+            if (groupId == null || artifactId == null || version == null) return null;
+            return new String[]{ groupId, artifactId, version };
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
      * Checks whether a POM file indicates a Kotlin or Scala project.
      * Looks for language-specific plugins, dependencies, and groupId patterns.
      */

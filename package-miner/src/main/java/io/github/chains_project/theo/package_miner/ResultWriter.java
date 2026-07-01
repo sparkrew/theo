@@ -11,19 +11,6 @@ import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.Set;
 
-/**
- * Writes the main results CSV file: one row per module, one column per sensitive API.
- *
- * The CSV has this structure:
- *   groupId, artifactId, version, scmUrl, modulePath, java.io.FileInputStream.<init>, ...
- *   com.google.guava, guava, 32.1.3-jre, https://github.com/google/guava, ., True, False, ...
- *
- * There are 219 sensitive API columns (matching sensitive_apis.json), and each cell
- * is either "True" or "False" indicating whether that module uses that API.
- *
- * All writes go through a synchronized lock so that multiple worker threads can
- * safely append rows in parallel without corrupting the file.
- */
 public class ResultWriter {
 
     private static final Logger log = LoggerFactory.getLogger(ResultWriter.class);
@@ -37,14 +24,11 @@ public class ResultWriter {
         this.sensitiveApiKeys = sensitiveApiKeys;
     }
 
-    /**
-     * Writes the CSV header row. This should be called once at the start of a fresh run.
-     */
     public void writeHeader() throws IOException {
         synchronized (writeLock) {
             try (BufferedWriter writer = Files.newBufferedWriter(csvFile,
                     StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-                writer.write("groupId,artifactId,version,scmUrl,modulePath");
+                writer.write("groupId,artifactId,version,scmUrl");
                 for (String api : sensitiveApiKeys) {
                     writer.write(",");
                     writer.write(escapeCsv(api));
@@ -54,30 +38,17 @@ public class ResultWriter {
         }
     }
 
-    /**
-     * Appends one row to the CSV for a single module.
-     *
-     * @param groupId      module groupId
-     * @param artifactId   module artifactId
-     * @param version      module version
-     * @param scmUrl       GitHub URL (may be null)
-     * @param modulePath   relative module path within the repo (e.g. "core" or ".")
-     * @param detectedApis the set of sensitive API identifiers detected
-     */
-    public void appendResult(String groupId, String artifactId, String version,
-                             String scmUrl, String modulePath, Set<String> detectedApis) {
+    public void appendResult(PackageInfo pkg, Set<String> detectedApis) {
         synchronized (writeLock) {
             try (BufferedWriter writer = Files.newBufferedWriter(csvFile,
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
-                writer.write(escapeCsv(groupId));
+                writer.write(escapeCsv(pkg.groupId()));
                 writer.write(",");
-                writer.write(escapeCsv(artifactId));
+                writer.write(escapeCsv(pkg.artifactId()));
                 writer.write(",");
-                writer.write(escapeCsv(version));
+                writer.write(escapeCsv(pkg.latestVersion()));
                 writer.write(",");
-                writer.write(escapeCsv(scmUrl != null ? scmUrl : ""));
-                writer.write(",");
-                writer.write(escapeCsv(modulePath != null ? modulePath : "."));
+                writer.write(escapeCsv(pkg.scmUrl() != null ? pkg.scmUrl() : ""));
 
                 for (String api : sensitiveApiKeys) {
                     writer.write(",");
@@ -85,7 +56,7 @@ public class ResultWriter {
                 }
                 writer.newLine();
             } catch (IOException e) {
-                log.error("Failed to write CSV row for {}:{}", groupId, artifactId, e);
+                log.error("Failed to write CSV row for {}", pkg.coordinate(), e);
             }
         }
     }

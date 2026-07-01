@@ -31,10 +31,9 @@ class ResultWriterTest {
         assertEquals("artifactId", headerCols[1]);
         assertEquals("version", headerCols[2]);
         assertEquals("scmUrl", headerCols[3]);
-        assertEquals("modulePath", headerCols[4]);
-        assertEquals("java.io.FileInputStream.<init>", headerCols[5]);
-        assertEquals("java.lang.Class.forName", headerCols[6]);
-        assertEquals("java.net.Socket.<init>", headerCols[7]);
+        assertEquals("java.io.FileInputStream.<init>", headerCols[4]);
+        assertEquals("java.lang.Class.forName", headerCols[5]);
+        assertEquals("java.net.Socket.<init>", headerCols[6]);
     }
 
     @Test
@@ -42,22 +41,20 @@ class ResultWriterTest {
         ResultWriter writer = new ResultWriter(tempDir, API_KEYS);
         writer.writeHeader();
 
-        writer.appendResult("com.example", "mylib", "1.0",
-                "https://github.com/example/mylib", ".",
-                Set.of("java.lang.Class.forName"));
+        PackageInfo pkg = new PackageInfo("com.example", "mylib", "1.0", 500);
+        writer.appendResult(pkg, Set.of("java.lang.Class.forName"));
 
         List<String> lines = Files.readAllLines(tempDir.resolve("sensitive_api_usage.csv"));
-        assertEquals(2, lines.size(), "Should have header + 1 data row");
+        assertEquals(2, lines.size());
 
         String[] cols = lines.get(1).split(",");
         assertEquals("com.example", cols[0]);
         assertEquals("mylib", cols[1]);
         assertEquals("1.0", cols[2]);
-        assertEquals("https://github.com/example/mylib", cols[3]);
-        assertEquals(".", cols[4]);
-        assertEquals("False", cols[5]); // FileInputStream — not detected
-        assertEquals("True", cols[6]);  // Class.forName — detected
-        assertEquals("False", cols[7]); // Socket — not detected
+        // cols[3] = scmUrl (empty)
+        assertEquals("False", cols[4]);
+        assertEquals("True", cols[5]);
+        assertEquals("False", cols[6]);
     }
 
     @Test
@@ -65,25 +62,23 @@ class ResultWriterTest {
         ResultWriter writer = new ResultWriter(tempDir, API_KEYS);
         writer.writeHeader();
 
-        writer.appendResult("a", "b", "1.0", "https://github.com/a/b", ".",
+        writer.appendResult(new PackageInfo("a", "b", "1.0", 0),
                 Set.of("java.io.FileInputStream.<init>", "java.net.Socket.<init>"));
-        writer.appendResult("c", "d", "2.0", "https://github.com/c/d", "core",
+        writer.appendResult(new PackageInfo("c", "d", "2.0", 0),
                 Set.of());
 
         List<String> lines = Files.readAllLines(tempDir.resolve("sensitive_api_usage.csv"));
         assertEquals(3, lines.size());
 
-        // First data row: FileInputStream=True, forName=False, Socket=True
         String[] row1 = lines.get(1).split(",");
-        assertEquals("True", row1[5]);
-        assertEquals("False", row1[6]);
-        assertEquals("True", row1[7]);
+        assertEquals("True", row1[4]);
+        assertEquals("False", row1[5]);
+        assertEquals("True", row1[6]);
 
-        // Second data row: all False
         String[] row2 = lines.get(2).split(",");
+        assertEquals("False", row2[4]);
         assertEquals("False", row2[5]);
         assertEquals("False", row2[6]);
-        assertEquals("False", row2[7]);
     }
 
     @Test
@@ -91,8 +86,7 @@ class ResultWriterTest {
         ResultWriter writer = new ResultWriter(tempDir, API_KEYS);
         writer.writeHeader();
 
-        writer.appendResult("com.example", "my,lib", "1.0", null, ".",
-                Set.of());
+        writer.appendResult(new PackageInfo("com.example", "my,lib", "1.0", 0), Set.of());
 
         String csv = Files.readString(tempDir.resolve("sensitive_api_usage.csv"));
         String dataLine = csv.split("\n")[1];

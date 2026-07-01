@@ -35,6 +35,7 @@ public class PackageAnalyzer {
     private static final long ANALYSIS_TIMEOUT_MINUTES = 30;
     // Preprocessor should be much faster — it just resolves dependencies and scans JARs
     private static final long PREPROCESSOR_TIMEOUT_MINUTES = 10;
+    private static final long DEPENDENCY_RESOLVE_TIMEOUT_MINUTES = 10;
 
     private final Path analyzerJar;
     private final Path outputDir;
@@ -99,14 +100,15 @@ public class PackageAnalyzer {
             return parseReport(pkg, reportFile, true, true);
         }
 
-        // Step 1: Generate the package map by running the preprocessor.
-        // This downloads the POM, creates a temp Maven project, and runs the preprocessor
-        // plugin to resolve all transitive dependencies.
+        // Step 1: Generate the package map and resolve dependencies.
         Path packageMapPath = generatePackageMap(pkg);
         if (packageMapPath == null) {
             log.warn("Could not generate package map for {}, skipping analysis.", pkgKey);
             return new AnalysisResult(pkg, Collections.emptySet(), null, false, false, 0);
         }
+
+        // Step 1b: Resolve dependency JARs into a per-package folder
+        Path depsDir = resolveDependencies(pkg);
 
         // Step 2: Extract the project's package name(s).
         // Prefer the source JAR since it only has the project's own .java files (no bundled deps).
@@ -130,14 +132,19 @@ public class PackageAnalyzer {
 
         // Step 3: Run the package-static-analyzer on the bytecode JAR
         try {
-            ProcessBuilder pb = new ProcessBuilder(
+            List<String> cmd = new ArrayList<>(List.of(
                     "java", "-jar", analyzerJar.toAbsolutePath().toString(),
                     "analyze",
                     "-j", bytecodeJarPath.toAbsolutePath().toString(),
                     "-p", packageNameParam,
                     "-m", packageMapPath.toAbsolutePath().toString(),
                     "-r", reportFile.toAbsolutePath().toString()
-            );
+            ));
+            if (depsDir != null) {
+                cmd.add("-d");
+                cmd.add(depsDir.toAbsolutePath().toString());
+            }
+            ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.redirectErrorStream(true);
             Process process = pb.start();
 
@@ -163,82 +170,6 @@ public class PackageAnalyzer {
 
             return parseReport(pkg, reportFile, true, true);
 
-        } catch (Exception e) {
-            log.error("Error analyzing {}", pkgKey, e);
-            return new AnalysisResult(pkg, Collections.emptySet(), null, true, false, 0);
-        }
-    }
-
-    /**
-     * Analyzes a module from a cloned GitHub project where the JAR and package map
-     * are already built. Skips POM download and preprocessor (already done by ProjectBuilder).
-     *
-     * @param groupId        the module's groupId
-     * @param artifactId     the module's artifactId
-     * @param version        the module's version
-     * @param jarPath        path to the built JAR
-     * @param packageMapPath path to the generated package-map.json
-     * @return analysis result with detected sensitive APIs
-     */
-    public AnalysisResult analyzeFromProject(String groupId, String artifactId, String version,
-                                             Path jarPath, Path packageMapPath) {
-        PackageInfo pkg = new PackageInfo(groupId, artifactId, version, 0);
-        String pkgKey = groupId + "_" + artifactId + "_" + version;
-        Path reportFile = outputDir.resolve("reports").resolve(pkgKey + "-report.json");
-
-        try {
-            Files.createDirectories(reportFile.getParent());
-        } catch (IOException e) {
-            log.error("Failed to create report directory for {}", pkgKey, e);
-            return new AnalysisResult(pkg, Collections.emptySet(), null, true, false, 0);
-        }
-
-        if (Files.exists(reportFile) && fileSize(reportFile) > 0) {
-            log.info("Report already exists for {}, parsing...", pkgKey);
-            return parseReport(pkg, reportFile, true, true);
-        }
-
-        // Extract package names from the JAR
-        Set<String> dependencyPackages = loadPackageMapKeys(packageMapPath);
-        List<String> packageNames = PackageNameExtractor.extractFromJar(jarPath, dependencyPackages);
-        if (packageNames.isEmpty()) {
-            log.warn("No package names found for {}, falling back to groupId.", pkgKey);
-            packageNames = List.of(groupId);
-        }
-        String packageNameParam = String.join(",", packageNames);
-
-        try {
-            ProcessBuilder pb = new ProcessBuilder(
-                    "java", "-jar", analyzerJar.toAbsolutePath().toString(),
-                    "analyze",
-                    "-j", jarPath.toAbsolutePath().toString(),
-                    "-p", packageNameParam,
-                    "-m", packageMapPath.toAbsolutePath().toString(),
-                    "-r", reportFile.toAbsolutePath().toString()
-            );
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
-
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    log.debug("[analyzer:{}] {}", artifactId, line);
-                }
-            }
-
-            boolean finished = process.waitFor(ANALYSIS_TIMEOUT_MINUTES, TimeUnit.MINUTES);
-            if (!finished) {
-                process.destroyForcibly();
-                log.warn("Analysis timed out for {}", pkgKey);
-                return new AnalysisResult(pkg, Collections.emptySet(), null, true, false, 0);
-            }
-
-            if (process.exitValue() != 0) {
-                log.warn("Analysis failed for {} (exit code {})", pkgKey, process.exitValue());
-                return new AnalysisResult(pkg, Collections.emptySet(), null, true, false, 0);
-            }
-
-            return parseReport(pkg, reportFile, true, true);
         } catch (Exception e) {
             log.error("Error analyzing {}", pkgKey, e);
             return new AnalysisResult(pkg, Collections.emptySet(), null, true, false, 0);
@@ -334,6 +265,62 @@ public class PackageAnalyzer {
 
         } catch (Exception e) {
             log.error("Error generating package map for {}", pkgKey, e);
+            return null;
+        }
+    }
+
+    /**
+     * Resolves all transitive dependency JARs for a package into a per-package directory.
+     * Reuses the temp Maven project created by generatePackageMap().
+     */
+    private Path resolveDependencies(PackageInfo pkg) {
+        String pkgKey = pkg.groupId() + "_" + pkg.artifactId() + "_" + pkg.latestVersion();
+        Path depsDir = outputDir.resolve("deps").resolve(pkgKey);
+        Path tempProjectDir = outputDir.resolve("temp-projects").resolve(pkgKey);
+
+        if (Files.isDirectory(depsDir)) {
+            try (var stream = Files.list(depsDir)) {
+                if (stream.anyMatch(p -> p.toString().endsWith(".jar"))) {
+                    log.debug("Dependencies already resolved for {}", pkgKey);
+                    return depsDir;
+                }
+            } catch (IOException ignored) {}
+        }
+
+        if (!Files.isDirectory(tempProjectDir)) {
+            log.debug("No temp project for {}, skipping dependency resolution.", pkgKey);
+            return null;
+        }
+
+        try {
+            Files.createDirectories(depsDir);
+            ProcessBuilder pb = new ProcessBuilder(
+                    "mvn", "dependency:copy-dependencies",
+                    "-DoutputDirectory=" + depsDir.toAbsolutePath(),
+                    "-DincludeScope=runtime",
+                    "-B", "-q"
+            );
+            pb.directory(tempProjectDir.toFile());
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                while (reader.readLine() != null) { }
+            }
+
+            boolean finished = process.waitFor(DEPENDENCY_RESOLVE_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+            if (!finished) {
+                process.destroyForcibly();
+                log.warn("Dependency resolution timed out for {}", pkgKey);
+                return null;
+            }
+            if (process.exitValue() != 0) {
+                log.debug("Dependency resolution failed for {} (exit code {})", pkgKey, process.exitValue());
+                return null;
+            }
+            return depsDir;
+        } catch (Exception e) {
+            log.debug("Error resolving dependencies for {}: {}", pkgKey, e.getMessage());
             return null;
         }
     }
