@@ -2,6 +2,7 @@ package io.github.chains_project.theo.package_miner;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.chains_project.theo.package_miner.model.PackageInfo;
+import io.github.chains_project.theo.package_miner.model.PackageScmInfo;
 import io.github.chains_project.theo.package_miner.model.VersionHistory;
 import io.github.chains_project.theo.package_miner.model.VersionInfo;
 import io.github.chains_project.theo.package_miner.util.CheckpointManager;
@@ -189,8 +190,8 @@ public class ScanOrchestrator {
         log.info("Extracting SCM info for {} packages with sensitive APIs...", packagesWithApis.size());
 
         List<PackageInfo> noScm = new ArrayList<>();
-        List<PackageInfo> nonGitHub = new ArrayList<>();
-        List<PackageInfo> withGitHub = new ArrayList<>();
+        List<PackageScmInfo> nonGitHub = new ArrayList<>();
+        List<PackageScmInfo> withGitHub = new ArrayList<>();
         Path pomDir = outputDir.resolve("poms");
 
         for (PackageWithApis pwa : packagesWithApis) {
@@ -205,12 +206,8 @@ public class ScanOrchestrator {
                 ScmExtractor.ScmResult scm = ScmExtractor.extractScmInfo(pomFile);
                 switch (scm.status()) {
                     case NO_SCM_TAG -> noScm.add(pkg);
-                    case NON_GITHUB_SCM -> nonGitHub.add(
-                            new PackageInfo(pkg.groupId(), pkg.artifactId(), pkg.latestVersion(),
-                                    pkg.downloadCount(), scm.rawScmUrl()));
-                    case GITHUB -> withGitHub.add(
-                            new PackageInfo(pkg.groupId(), pkg.artifactId(), pkg.latestVersion(),
-                                    pkg.downloadCount(), scm.githubUrl()));
+                    case NON_GITHUB_SCM -> nonGitHub.add(PackageScmInfo.from(pkg, scm.rawScmUrl()));
+                    case GITHUB -> withGitHub.add(PackageScmInfo.from(pkg, scm.githubUrl()));
                 }
             } catch (Exception e) {
                 log.debug("Failed to extract SCM for {}", pkg.coordinate());

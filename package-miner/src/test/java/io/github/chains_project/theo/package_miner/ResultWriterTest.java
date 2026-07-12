@@ -32,10 +32,9 @@ class ResultWriterTest {
         assertEquals("groupId", headerCols[0]);
         assertEquals("artifactId", headerCols[1]);
         assertEquals("version", headerCols[2]);
-        assertEquals("scmUrl", headerCols[3]);
-        assertEquals("java.io.FileInputStream.<init>", headerCols[4]);
-        assertEquals("java.lang.Class.forName", headerCols[5]);
-        assertEquals("java.net.Socket.<init>", headerCols[6]);
+        assertEquals("java.io.FileInputStream.<init>", headerCols[3]);
+        assertEquals("java.lang.Class.forName", headerCols[4]);
+        assertEquals("java.net.Socket.<init>", headerCols[5]);
     }
 
     @Test
@@ -53,9 +52,9 @@ class ResultWriterTest {
         assertEquals("com.example", cols[0]);
         assertEquals("mylib", cols[1]);
         assertEquals("1.0", cols[2]);
-        assertEquals("False", cols[4]);
-        assertEquals("True", cols[5]);
-        assertEquals("False", cols[6]);
+        assertEquals("False", cols[3]);
+        assertEquals("True", cols[4]);
+        assertEquals("False", cols[5]);
     }
 
     @Test
@@ -72,14 +71,14 @@ class ResultWriterTest {
         assertEquals(3, lines.size());
 
         String[] row1 = lines.get(1).split(",");
-        assertEquals("True", row1[4]);
-        assertEquals("False", row1[5]);
-        assertEquals("True", row1[6]);
+        assertEquals("True", row1[3]);
+        assertEquals("False", row1[4]);
+        assertEquals("True", row1[5]);
 
         String[] row2 = lines.get(2).split(",");
+        assertEquals("False", row2[3]);
         assertEquals("False", row2[4]);
         assertEquals("False", row2[5]);
-        assertEquals("False", row2[6]);
     }
 
     @Test

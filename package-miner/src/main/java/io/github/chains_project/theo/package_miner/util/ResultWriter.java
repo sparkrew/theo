@@ -29,7 +29,7 @@ public class ResultWriter {
         synchronized (writeLock) {
             try (BufferedWriter writer = Files.newBufferedWriter(csvFile,
                     StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-                writer.write("groupId,artifactId,version,scmUrl");
+                writer.write("groupId,artifactId,version");
                 for (String api : sensitiveApiKeys) {
                     writer.write(",");
                     writer.write(escapeCsv(api));
@@ -48,8 +48,6 @@ public class ResultWriter {
                 writer.write(escapeCsv(pkg.artifactId()));
                 writer.write(",");
                 writer.write(escapeCsv(pkg.latestVersion()));
-                writer.write(",");
-                writer.write(escapeCsv(pkg.scmUrl() != null ? pkg.scmUrl() : ""));
 
                 for (String api : sensitiveApiKeys) {
                     writer.write(",");
