@@ -31,7 +31,7 @@ public class MavenCentralClient {
     private static final String SEARCH_BASE = "https://search.maven.org/solrsearch/select";
     private static final String REPO_BASE = "https://repo1.maven.org/maven2";
     private static final int PAGE_SIZE = 200;
-    private static final int ECOSYSTEMS_PAGE_SIZE = 20;
+    private static final int ECOSYSTEMS_PAGE_SIZE = 10;
     private static final Duration VERSION_FETCH_TIMEOUT = Duration.ofMinutes(5);
     private static final long RATE_LIMIT_MS = 1000;
 
@@ -45,17 +45,19 @@ public class MavenCentralClient {
         this.mapper = new ObjectMapper();
     }
 
-    public List<PackageInfo> fetchPopularJavaPackages(int count, int cutoffYear)
+    public record CollectResult(List<PackageInfo> packages, int lastPage) {}
+
+    public CollectResult fetchPopularJavaPackagesPaged(int count, int cutoffYear, int startPage)
             throws IOException, InterruptedException {
         boolean collectAll = (count <= 0);
         List<PackageInfo> results = new ArrayList<>();
-        int page = 1;
+        int page = startPage;
         int skippedLanguage = 0, skippedOld = 0, skippedParsing = 0;
 
         if (collectAll) {
-            log.info("Fetching ALL popular Java packages from ecosyste.ms...");
+            log.info("Fetching ALL popular Java packages from ecosyste.ms (starting page {})...", startPage);
         } else {
-            log.info("Fetching top {} popular Java packages from ecosyste.ms...", count);
+            log.info("Fetching {} popular Java packages from ecosyste.ms (starting page {})...", count, startPage);
         }
 
         while (collectAll || results.size() < count) {
@@ -110,18 +112,20 @@ public class MavenCentralClient {
                 if (!collectAll && results.size() >= count) break;
             }
 
+            page++;
+
             if (data.size() < ECOSYSTEMS_PAGE_SIZE) {
                 break;
             }
 
-            page++;
-            log.info("Fetched {}/{} packages ({} old, {} non-Java, {} unparseable skipped).",
-                    results.size(), count, skippedOld, skippedLanguage, skippedParsing);
+            log.info("Fetched {}{} packages ({} old, {} non-Java, {} unparseable skipped). Page {}.",
+                    results.size(), collectAll ? "" : "/" + count,
+                    skippedOld, skippedLanguage, skippedParsing, page - 1);
             Thread.sleep(RATE_LIMIT_MS);
         }
 
-        log.info("Selected {} packages.", results.size());
-        return results;
+        log.info("Selected {} packages (pages {}-{}).", results.size(), startPage, page - 1);
+        return new CollectResult(results, page);
     }
 
     private JsonNode fetchEcosystemsPage(String url) throws InterruptedException {
