@@ -1,5 +1,6 @@
 package io.github.chains_project.theo.package_miner;
 
+import io.github.chains_project.theo.package_miner.util.PackageNameExtractor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -44,7 +45,6 @@ class PackageNameExtractorTest {
 
     @Test
     void commonBaseTooShortFallsBackToMultiplePrefixes() {
-        // org.apache is only 2 parts — too common to be a useful base
         Set<String> packages = Set.of(
                 "org.apache.pdfbox.pdmodel",
                 "org.apache.pdfbox.cos",
@@ -87,7 +87,6 @@ class PackageNameExtractorTest {
         Set<String> packages = Set.of("ab", "cd");
         List<String> result = PackageNameExtractor.findBasePackageNames(packages);
 
-        // Can't extract 3-part prefixes, so falls back to all packages
         assertTrue(result.contains("ab"));
         assertTrue(result.contains("cd"));
     }
@@ -136,7 +135,6 @@ class PackageNameExtractorTest {
 
     @Test
     void filtersDependencyPackagesFromUberJar(@TempDir Path tempDir) throws IOException {
-        // Simulate an uber JAR with both project classes and bundled dependency classes
         Path jar = createJarWithEntries(tempDir, "uber.jar",
                 "com/example/mylib/Main.class",
                 "com/example/mylib/util/Helper.class",
@@ -144,7 +142,6 @@ class PackageNameExtractorTest {
                 "org/slf4j/Logger.class"
         );
 
-        // The package map says these are dependencies
         Set<String> depPackages = Set.of("com.google.common.collect", "org.slf4j");
 
         List<String> result = PackageNameExtractor.extractFromJar(jar, depPackages);
@@ -181,7 +178,7 @@ class PackageNameExtractorTest {
         try (JarOutputStream jos = new JarOutputStream(new FileOutputStream(jarPath.toFile()))) {
             for (String entry : entries) {
                 jos.putNextEntry(new JarEntry(entry));
-                jos.write(new byte[]{0}); // dummy content
+                jos.write(new byte[]{0});
                 jos.closeEntry();
             }
         }

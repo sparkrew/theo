@@ -1,7 +1,8 @@
-package io.github.chains_project.theo.package_miner;
+package io.github.chains_project.theo.package_miner.util;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.chains_project.theo.package_miner.model.PackageInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -1,5 +1,7 @@
 package io.github.chains_project.theo.package_miner;
 
+import io.github.chains_project.theo.package_miner.model.PackageInfo;
+import io.github.chains_project.theo.package_miner.util.ResultWriter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -51,7 +53,6 @@ class ResultWriterTest {
         assertEquals("com.example", cols[0]);
         assertEquals("mylib", cols[1]);
         assertEquals("1.0", cols[2]);
-        // cols[3] = scmUrl (empty)
         assertEquals("False", cols[4]);
         assertEquals("True", cols[5]);
         assertEquals("False", cols[6]);

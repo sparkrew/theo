@@ -1,5 +1,6 @@
-package io.github.chains_project.theo.package_miner;
+package io.github.chains_project.theo.package_miner.util;
 
+import io.github.chains_project.theo.package_miner.model.PackageInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

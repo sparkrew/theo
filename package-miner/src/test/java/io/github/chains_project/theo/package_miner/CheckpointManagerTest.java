@@ -1,5 +1,7 @@
 package io.github.chains_project.theo.package_miner;
 
+import io.github.chains_project.theo.package_miner.model.PackageInfo;
+import io.github.chains_project.theo.package_miner.util.CheckpointManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -38,7 +40,6 @@ class CheckpointManagerTest {
         cm1.markCompleted(pkg1);
         cm1.markCompleted(pkg2);
 
-        // Create a new instance from the same directory — should load the checkpoint
         CheckpointManager cm2 = new CheckpointManager(tempDir);
 
         assertTrue(cm2.isCompleted(pkg1));

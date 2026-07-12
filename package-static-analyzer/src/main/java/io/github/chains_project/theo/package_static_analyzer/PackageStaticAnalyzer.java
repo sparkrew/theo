@@ -137,8 +137,9 @@ public class PackageStaticAnalyzer {
                                 if (dep != null) {
                                     intermediaryDependencies.add(dep);
                                 } else {
-                                    // Package not in the map — use the package name as identifier
-                                    intermediaryDependencies.add(methodPkg);
+                                    // Package not in the map
+                                    log.error("Dependency for package {} not found in package map. Path: {}",
+                                            methodPkg, pathStrings);
                                 }
                             }
                         }

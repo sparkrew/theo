@@ -2,6 +2,8 @@ package io.github.chains_project.theo.package_miner;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.chains_project.theo.package_miner.model.PackageInfo;
+import io.github.chains_project.theo.package_miner.util.PackageNameExtractor;
 import io.github.chains_project.theo.theo_commons.APILoader;
 import io.github.chains_project.theo.theo_commons.SensitiveAPIDescriptor;
 import org.slf4j.Logger;
@@ -149,11 +151,23 @@ public class PackageAnalyzer {
             Process process = pb.start();
 
             // Read and log theo-static's output so it doesn't block on a full buffer
+            boolean oomDetected = false;
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     log.debug("[analyzer:{}] {}", pkg.artifactId(), line);
+                    if (isOomMessage(line)) {
+                        oomDetected = true;
+                        log.warn("OOM detected in analyzer subprocess for {}, killing process.", pkgKey);
+                        process.destroyForcibly();
+                        break;
+                    }
                 }
+            }
+
+            if (oomDetected) {
+                process.waitFor(10, TimeUnit.SECONDS);
+                return new AnalysisResult(pkg, Collections.emptySet(), null, true, false, 0);
             }
 
             boolean finished = process.waitFor(ANALYSIS_TIMEOUT_MINUTES, TimeUnit.MINUTES);
@@ -236,11 +250,23 @@ public class PackageAnalyzer {
             Process process = pb.start();
 
             // Read Maven's output so the process doesn't hang on a full buffer
+            boolean oomDetected = false;
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     log.debug("[preprocessor:{}] {}", pkg.artifactId(), line);
+                    if (isOomMessage(line)) {
+                        oomDetected = true;
+                        log.warn("OOM detected in preprocessor subprocess for {}, killing process.", pkgKey);
+                        process.destroyForcibly();
+                        break;
+                    }
                 }
+            }
+
+            if (oomDetected) {
+                process.waitFor(10, TimeUnit.SECONDS);
+                return null;
             }
 
             boolean finished = process.waitFor(PREPROCESSOR_TIMEOUT_MINUTES, TimeUnit.MINUTES);
@@ -304,8 +330,22 @@ public class PackageAnalyzer {
             pb.redirectErrorStream(true);
             Process process = pb.start();
 
+            boolean oomDetected = false;
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                while (reader.readLine() != null) { }
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (isOomMessage(line)) {
+                        oomDetected = true;
+                        log.warn("OOM detected in dependency resolution for {}, killing process.", pkgKey);
+                        process.destroyForcibly();
+                        break;
+                    }
+                }
+            }
+
+            if (oomDetected) {
+                process.waitFor(10, TimeUnit.SECONDS);
+                return null;
             }
 
             boolean finished = process.waitFor(DEPENDENCY_RESOLVE_TIMEOUT_MINUTES, TimeUnit.MINUTES);
@@ -392,6 +432,13 @@ public class PackageAnalyzer {
             log.warn("Could not read package map keys from {}, dependency filtering disabled.", packageMapPath);
             return Collections.emptySet();
         }
+    }
+
+    private static boolean isOomMessage(String line) {
+        return line.contains("OutOfMemoryError")
+                || line.contains("insufficient memory for the Java Runtime Environment")
+                || line.contains("Native memory allocation (malloc) failed")
+                || line.contains("Java heap space");
     }
 
     private long fileSize(Path file) {

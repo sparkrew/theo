@@ -1,4 +1,4 @@
-package io.github.chains_project.theo.package_miner;
+package io.github.chains_project.theo.package_miner.util;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -8,19 +8,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Tracks how many packages made it through each stage of the mining pipeline.
- *
- * This gives us a clear picture of where packages drop off:
- * - How many were selected from Maven Central
- * - How many JARs we successfully downloaded
- * - How many had their dependencies resolved by the preprocessor
- * - How many were successfully analyzed by theo-static
- * - How many turned out to have at least one sensitive API
- *
- * All counters are thread-safe so they can be incremented from parallel worker threads.
- * At the end, a summary is logged and also written to a JSON file for later reference.
- */
 public class MiningStats {
 
     private static final Logger log = LoggerFactory.getLogger(MiningStats.class);
@@ -34,9 +21,7 @@ public class MiningStats {
     private final AtomicInteger analyzerFailed = new AtomicInteger(0);
     private final AtomicInteger withSensitiveApis = new AtomicInteger(0);
     private final AtomicInteger withoutSensitiveApis = new AtomicInteger(0);
-    // Packages where the analyzer found at least one public entry point method
     private final AtomicInteger withEntryPoints = new AtomicInteger(0);
-    // Packages with zero entry points — nothing to analyze
     private final AtomicInteger withoutEntryPoints = new AtomicInteger(0);
 
     public void setTotalSelected(int count) {
@@ -83,10 +68,6 @@ public class MiningStats {
         }
     }
 
-    /**
-     * Logs a human-readable summary of the pipeline statistics and writes them
-     * to a JSON file so they can be referenced later.
-     */
     public void printSummary(Path outputDir) {
         log.info("=============================================================");
         log.info("                    MINING PIPELINE SUMMARY                   ");
@@ -109,7 +90,6 @@ public class MiningStats {
         log.info("  Packages WITHOUT sensitive APIs:       {}", withoutSensitiveApis.get());
         log.info("=============================================================");
 
-        // Also save the stats to a JSON file for programmatic access
         saveSummaryJson(outputDir);
     }
 
@@ -136,9 +116,6 @@ public class MiningStats {
         }
     }
 
-    /**
-     * The summary as a record, serialized to mining_summary.json at the end of the run.
-     */
     public record SummaryRecord(
             int totalSelected,
             int downloadSuccess,

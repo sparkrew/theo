@@ -12,29 +12,13 @@ import java.nio.file.Path;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Extracts GitHub repository URLs from Maven POM files by parsing the {@code <scm>} tag,
- * and detects Kotlin/Scala projects by checking for language-specific plugins and dependencies.
- */
 public class ScmExtractor {
 
     private static final Logger log = LoggerFactory.getLogger(ScmExtractor.class);
 
-    // Matches GitHub owner/repo from various SCM URL formats
     private static final Pattern GITHUB_PATTERN = Pattern.compile(
             "github\\.com[/:]([A-Za-z0-9_.\\-]+)/([A-Za-z0-9_.\\-]+?)(?:\\.git)?(?:/.*)?$"
     );
-
-    private static final String[] KOTLIN_SCALA_GROUPIDS = {
-            "org.jetbrains.kotlin", "org.scala-lang", "org.scala-sbt",
-            "io.github.kotlin", "org.jetbrains.kotlinx"
-    };
-
-    private static final String[] KOTLIN_SCALA_ARTIFACTIDS = {
-            "kotlin-maven-plugin", "scala-maven-plugin", "kotlin-stdlib",
-            "kotlin-stdlib-jdk8", "kotlin-stdlib-jdk7", "scala-library",
-            "scala-compiler", "scala-reflect", "kotlin-gradle-plugin"
-    };
 
     public enum ScmStatus {
         NO_SCM_TAG,
@@ -42,9 +26,6 @@ public class ScmExtractor {
         GITHUB
     }
 
-    /**
-     * Result of SCM extraction: status + GitHub URL (if found) + raw SCM URL (if non-GitHub).
-     */
     public record ScmResult(ScmStatus status, String githubUrl, String rawScmUrl) {
         public static ScmResult noScm() {
             return new ScmResult(ScmStatus.NO_SCM_TAG, null, null);
@@ -57,10 +38,6 @@ public class ScmExtractor {
         }
     }
 
-    /**
-     * Parses a POM file and extracts SCM information, distinguishing between
-     * no SCM tag, non-GitHub SCM, and GitHub SCM.
-     */
     public static ScmResult extractScmInfo(Path pomFile) {
         try {
             Document doc = parsePomDoc(pomFile);
@@ -70,12 +47,10 @@ public class ScmExtractor {
 
             Element scm = (Element) scmNodes.item(0);
 
-            // Collect all raw SCM URLs for fallback reporting
             String url = getChildText(scm, "url");
             String connection = getChildText(scm, "connection");
             String devConnection = getChildText(scm, "developerConnection");
 
-            // Try each for a GitHub URL
             String result = extractFromUrl(url);
             if (result != null) return ScmResult.github(result);
 
@@ -85,7 +60,6 @@ public class ScmExtractor {
             result = extractFromUrl(devConnection);
             if (result != null) return ScmResult.github(result);
 
-            // SCM tag exists but no GitHub URL — record the raw URL
             String rawUrl = url != null ? url : (connection != null ? connection : devConnection);
             return ScmResult.nonGitHub(rawUrl);
         } catch (Exception e) {
@@ -94,78 +68,9 @@ public class ScmExtractor {
         }
     }
 
-    /**
-     * Convenience method that returns just the GitHub URL or null.
-     */
     public static String extractGitHubUrl(Path pomFile) {
         ScmResult result = extractScmInfo(pomFile);
         return result.githubUrl();
-    }
-
-    /**
-     * Extracts the parent POM coordinates (groupId, artifactId, version) from a POM file.
-     * Returns null if no parent is declared.
-     */
-    public static String[] extractParentCoordinates(Path pomFile) {
-        try {
-            Document doc = parsePomDoc(pomFile);
-            NodeList parentNodes = doc.getElementsByTagName("parent");
-            if (parentNodes.getLength() == 0) return null;
-
-            Element parent = (Element) parentNodes.item(0);
-            String groupId = getChildText(parent, "groupId");
-            String artifactId = getChildText(parent, "artifactId");
-            String version = getChildText(parent, "version");
-
-            if (groupId == null || artifactId == null || version == null) return null;
-            return new String[]{ groupId, artifactId, version };
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    /**
-     * Checks whether a POM file indicates a Kotlin or Scala project.
-     * Looks for language-specific plugins, dependencies, and groupId patterns.
-     */
-    public static boolean isKotlinOrScala(Path pomFile) {
-        try {
-            Document doc = parsePomDoc(pomFile);
-
-            NodeList groupIds = doc.getElementsByTagName("groupId");
-            for (int i = 0; i < groupIds.getLength(); i++) {
-                String gid = groupIds.item(i).getTextContent().trim().toLowerCase();
-                for (String indicator : KOTLIN_SCALA_GROUPIDS) {
-                    if (gid.contains(indicator)) return true;
-                }
-            }
-
-            NodeList artifactIds = doc.getElementsByTagName("artifactId");
-            for (int i = 0; i < artifactIds.getLength(); i++) {
-                String aid = artifactIds.item(i).getTextContent().trim().toLowerCase();
-                for (String indicator : KOTLIN_SCALA_ARTIFACTIDS) {
-                    if (aid.equals(indicator)) return true;
-                }
-            }
-
-            return false;
-        } catch (Exception e) {
-            log.debug("Failed to parse POM for language check: {}", pomFile, e);
-            return false;
-        }
-    }
-
-    /**
-     * Quick check on groupId/artifactId strings before downloading the POM.
-     */
-    public static boolean isLikelyKotlinOrScala(String groupId, String artifactId) {
-        String gLower = groupId.toLowerCase();
-        String aLower = artifactId.toLowerCase();
-        return gLower.contains("kotlin") || gLower.contains("scala")
-                || gLower.contains("kotlinx") || gLower.contains("groovy")
-                || gLower.contains("clojure")
-                || aLower.contains("kotlin") || aLower.contains("scala")
-                || aLower.contains("groovy") || aLower.contains("clojure");
     }
 
     private static String extractFromUrl(String raw) {

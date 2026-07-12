@@ -1,6 +1,12 @@
 package io.github.chains_project.theo.package_miner;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.chains_project.theo.package_miner.model.PackageInfo;
+import io.github.chains_project.theo.package_miner.model.VersionHistory;
+import io.github.chains_project.theo.package_miner.model.VersionInfo;
+import io.github.chains_project.theo.package_miner.util.CheckpointManager;
+import io.github.chains_project.theo.package_miner.util.MiningStats;
+import io.github.chains_project.theo.package_miner.util.ResultWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,17 +18,9 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
-/**
- * Coordinates the mining pipeline:
- *
- * 1. SELECT     — Pick popular Java packages from Maven Central
- * 2. ANALYZE    — Download JAR + dependencies, run preprocessor + static analyzer
- * 3. SCM TRACK  — For packages with sensitive APIs, extract SCM info from POMs
- * 4. VERSIONS   — Analyze version history from Maven Central releases (batched)
- */
-public class MiningOrchestrator {
+public class ScanOrchestrator {
 
-    private static final Logger log = LoggerFactory.getLogger(MiningOrchestrator.class);
+    private static final Logger log = LoggerFactory.getLogger(ScanOrchestrator.class);
 
     private static final Pattern PRERELEASE_PATTERN = Pattern.compile(
             "(?i).*(snapshot|alpha|beta|\\-rc|\\-m\\d|milestone|nightly|dev|preview|incubating).*"
@@ -31,26 +29,21 @@ public class MiningOrchestrator {
     private final Path outputDir;
     private final Path downloadDir;
     private final Path analyzerJar;
-    private final int totalPackages;
     private final int workers;
     private final boolean analyzeAllVersions;
     private final int versionHistoryYears;
     private final int versionHistoryBatchSize;
-    private final int cutoffYear;
 
-    public MiningOrchestrator(Path outputDir, Path downloadDir, Path analyzerJar,
-                              int totalPackages, int workers,
-                              boolean analyzeAllVersions, int versionHistoryYears,
-                              int versionHistoryBatchSize, int cutoffYear) {
+    public ScanOrchestrator(Path outputDir, Path downloadDir, Path analyzerJar,
+                            int workers, boolean analyzeAllVersions,
+                            int versionHistoryYears, int versionHistoryBatchSize) {
         this.outputDir = outputDir;
         this.downloadDir = downloadDir;
         this.analyzerJar = analyzerJar;
-        this.totalPackages = totalPackages;
         this.workers = workers;
         this.analyzeAllVersions = analyzeAllVersions;
         this.versionHistoryYears = versionHistoryYears;
         this.versionHistoryBatchSize = versionHistoryBatchSize;
-        this.cutoffYear = cutoffYear;
     }
 
     public void run() {
@@ -68,19 +61,13 @@ public class MiningOrchestrator {
         ResultWriter resultWriter = new ResultWriter(outputDir, analyzer.getSensitiveApiKeys());
         MiningStats stats = new MiningStats();
 
-        // ===== Phase 1: SELECT =====
         List<PackageInfo> allPackages = checkpoint.loadPackageList();
-        if (allPackages == null) {
-            allPackages = selectPackages(client);
-            if (allPackages == null || allPackages.isEmpty()) {
-                log.error("No packages selected. Exiting.");
-                return;
-            }
-            checkpoint.savePackageList(allPackages);
+        if (allPackages == null || allPackages.isEmpty()) {
+            log.error("No selected_packages.json found in {}. Run 'mine collect' first.", outputDir);
+            return;
         }
         stats.setTotalSelected(allPackages.size());
 
-        // Write CSV header if fresh run
         boolean csvExists = Files.exists(outputDir.resolve("sensitive_api_usage.csv"));
         if (!csvExists || checkpoint.completedCount() == 0) {
             try {
@@ -94,7 +81,7 @@ public class MiningOrchestrator {
         log.info("Starting analysis of {} packages with {} workers. {} already completed.",
                 allPackages.size(), workers, checkpoint.completedCount());
 
-        // ===== Phase 2: DOWNLOAD, RESOLVE, ANALYZE =====
+        // ===== ANALYZE =====
         AtomicInteger processed = new AtomicInteger(checkpoint.completedCount());
         int total = allPackages.size();
         List<PackageWithApis> packagesWithApis = Collections.synchronizedList(new ArrayList<>());
@@ -154,6 +141,11 @@ public class MiningOrchestrator {
                     checkpoint.markCompleted(pkg);
                     resultWriter.appendResult(pkg, Collections.emptySet());
                     processed.incrementAndGet();
+                } catch (OutOfMemoryError e) {
+                    log.error("OOM while processing {}, skipping.", pkg.coordinate());
+                    checkpoint.markCompleted(pkg);
+                    resultWriter.appendResult(pkg, Collections.emptySet());
+                    processed.incrementAndGet();
                 }
             }));
         }
@@ -171,12 +163,12 @@ public class MiningOrchestrator {
         executor.shutdown();
         checkpoint.save();
 
-        // ===== Phase 3: SCM TRACKING =====
+        // ===== SCM TRACKING =====
         if (!packagesWithApis.isEmpty()) {
             trackScmInfo(packagesWithApis, client);
         }
 
-        // ===== Phase 4: VERSION HISTORY =====
+        // ===== VERSION HISTORY =====
         if (analyzeAllVersions && !packagesWithApis.isEmpty()) {
             runVersionHistory(packagesWithApis, client, analyzer, checkpoint);
         }
@@ -192,22 +184,6 @@ public class MiningOrchestrator {
             log.info("  Visualization: {}", outputDir.resolve("permission_changes_report.html"));
         }
     }
-
-    // ==================== Phase 1 ====================
-
-    private List<PackageInfo> selectPackages(MavenCentralClient client) {
-        log.info("=============================================================");
-        log.info("  Phase 1: SELECT — {} packages, cutoff year {}", totalPackages, cutoffYear);
-        log.info("=============================================================");
-        try {
-            return client.fetchPopularJavaPackages(totalPackages, cutoffYear);
-        } catch (Exception e) {
-            log.error("Failed to fetch packages from Maven Central.", e);
-            return null;
-        }
-    }
-
-    // ==================== Phase 3: SCM TRACKING ====================
 
     private void trackScmInfo(List<PackageWithApis> packagesWithApis, MavenCentralClient client) {
         log.info("Extracting SCM info for {} packages with sensitive APIs...", packagesWithApis.size());
@@ -260,13 +236,11 @@ public class MiningOrchestrator {
         }
     }
 
-    // ==================== Phase 4: VERSION HISTORY ====================
-
     private void runVersionHistory(List<PackageWithApis> packagesWithApis,
                                    MavenCentralClient client, PackageAnalyzer analyzer,
                                    CheckpointManager checkpoint) {
         log.info("=============================================================");
-        log.info("  Phase 4: VERSION HISTORY — {} packages with sensitive APIs", packagesWithApis.size());
+        log.info("  VERSION HISTORY — {} packages with sensitive APIs", packagesWithApis.size());
         log.info("  Batch size: {}, years: {}", versionHistoryBatchSize, versionHistoryYears);
         log.info("=============================================================");
 
@@ -320,7 +294,6 @@ public class MiningOrchestrator {
             return;
         }
 
-        // Filter to stable releases only
         List<VersionInfo> stableVersions = allVersions.stream()
                 .filter(v -> isStableRelease(v.version()))
                 .toList();
@@ -375,8 +348,6 @@ public class MiningOrchestrator {
         if (!version.matches("\\d+\\.\\d+.*")) return false;
         return !PRERELEASE_PATTERN.matcher(version).matches();
     }
-
-    // ==================== Helper records ====================
 
     private record PackageWithApis(PackageInfo pkg, Set<String> detectedApis) {}
 }

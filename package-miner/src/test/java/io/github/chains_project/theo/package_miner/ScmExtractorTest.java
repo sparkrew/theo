@@ -1,5 +1,6 @@
 package io.github.chains_project.theo.package_miner;
 
+import io.github.chains_project.theo.package_miner.util.LanguageFilter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -107,55 +108,10 @@ class ScmExtractorTest {
     }
 
     @Test
-    void detectsKotlinProject(@TempDir Path tempDir) throws IOException {
-        Path pom = writePom(tempDir, """
-                <project>
-                  <dependencies>
-                    <dependency>
-                      <groupId>org.jetbrains.kotlin</groupId>
-                      <artifactId>kotlin-stdlib</artifactId>
-                    </dependency>
-                  </dependencies>
-                </project>
-                """);
-        assertTrue(ScmExtractor.isKotlinOrScala(pom));
-    }
-
-    @Test
-    void detectsScalaProject(@TempDir Path tempDir) throws IOException {
-        Path pom = writePom(tempDir, """
-                <project>
-                  <dependencies>
-                    <dependency>
-                      <groupId>org.scala-lang</groupId>
-                      <artifactId>scala-library</artifactId>
-                    </dependency>
-                  </dependencies>
-                </project>
-                """);
-        assertTrue(ScmExtractor.isKotlinOrScala(pom));
-    }
-
-    @Test
-    void pureJavaProjectNotDetectedAsKotlinScala(@TempDir Path tempDir) throws IOException {
-        Path pom = writePom(tempDir, """
-                <project>
-                  <dependencies>
-                    <dependency>
-                      <groupId>com.google.guava</groupId>
-                      <artifactId>guava</artifactId>
-                    </dependency>
-                  </dependencies>
-                </project>
-                """);
-        assertFalse(ScmExtractor.isKotlinOrScala(pom));
-    }
-
-    @Test
     void quickLanguageCheckDetectsKotlin() {
-        assertTrue(ScmExtractor.isLikelyKotlinOrScala("org.jetbrains.kotlinx", "coroutines-core"));
-        assertTrue(ScmExtractor.isLikelyKotlinOrScala("com.example", "my-kotlin-lib"));
-        assertFalse(ScmExtractor.isLikelyKotlinOrScala("com.google.guava", "guava"));
+        assertTrue(LanguageFilter.isLikelyKotlinOrScala("org.jetbrains.kotlinx", "coroutines-core"));
+        assertTrue(LanguageFilter.isLikelyKotlinOrScala("com.example", "my-kotlin-lib"));
+        assertFalse(LanguageFilter.isLikelyKotlinOrScala("com.google.guava", "guava"));
     }
 
     private Path writePom(Path dir, String content) throws IOException {

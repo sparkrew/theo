@@ -2,6 +2,7 @@ package io.github.chains_project.theo.package_miner;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.chains_project.theo.package_miner.model.VersionHistory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
