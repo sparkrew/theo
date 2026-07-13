@@ -1,5 +1,6 @@
 package io.github.chains_project.theo.package_miner;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.chains_project.theo.package_miner.model.PackageInfo;
 import io.github.chains_project.theo.package_miner.model.PackageScmInfo;
@@ -27,6 +28,8 @@ public class ScanOrchestrator {
             "(?i).*(snapshot|alpha|beta|\\-rc|\\-m\\d|milestone|nightly|dev|preview|incubating).*"
     );
 
+    private static final long SCAN_TIMEOUT_MINUTES = 30;
+
     private final Path outputDir;
     private final Path downloadDir;
     private final Path analyzerJar;
@@ -34,6 +37,7 @@ public class ScanOrchestrator {
     private final boolean analyzeAllVersions;
     private final int versionHistoryYears;
     private final int versionHistoryBatchSize;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     public ScanOrchestrator(Path outputDir, Path downloadDir, Path analyzerJar,
                             int workers, boolean analyzeAllVersions,
@@ -79,102 +83,140 @@ public class ScanOrchestrator {
             }
         }
 
-        log.info("Starting analysis of {} packages with {} workers. {} already completed.",
-                allPackages.size(), workers, checkpoint.completedCount());
-
-        // ===== ANALYZE =====
-        AtomicInteger processed = new AtomicInteger(checkpoint.completedCount());
-        int total = allPackages.size();
-        List<PackageWithApis> packagesWithApis = Collections.synchronizedList(new ArrayList<>());
-
-        ExecutorService executor = Executors.newFixedThreadPool(workers);
-        List<Future<?>> futures = new ArrayList<>();
-
+        List<PackageWithApis> packagesWithApis = loadPackagesWithApis();
+        boolean analysisNeeded = false;
         for (PackageInfo pkg : allPackages) {
-            if (checkpoint.isCompleted(pkg)) continue;
+            if (!checkpoint.isCompleted(pkg)) {
+                analysisNeeded = true;
+                break;
+            }
+        }
 
-            futures.add(executor.submit(() -> {
-                try {
-                    log.info("[{}/{}] Processing {}...", processed.get(), total, pkg.coordinate());
+        if (analysisNeeded) {
+            log.info("Starting analysis of {} packages with {} workers. {} already completed.",
+                    allPackages.size(), workers, checkpoint.completedCount());
 
-                    Path bytecodeJar = client.downloadBytecodeJar(pkg, downloadDir);
-                    if (bytecodeJar == null) {
-                        log.warn("Skipping {} — could not download bytecode JAR.", pkg.coordinate());
-                        stats.recordDownloadFailure();
+            AtomicInteger processed = new AtomicInteger(checkpoint.completedCount());
+            int total = allPackages.size();
+
+            List<PackageInfo> downloadFailed = Collections.synchronizedList(new ArrayList<>());
+            List<PackageInfo> scanFailed = Collections.synchronizedList(new ArrayList<>());
+            List<PackageInfo> timedOut = Collections.synchronizedList(new ArrayList<>());
+            List<PackageInfo> oomPackages = Collections.synchronizedList(new ArrayList<>());
+
+            ExecutorService executor = Executors.newFixedThreadPool(workers);
+            List<Future<?>> futures = new ArrayList<>();
+
+            for (PackageInfo pkg : allPackages) {
+                if (checkpoint.isCompleted(pkg)) continue;
+
+                futures.add(executor.submit(() -> {
+                    try {
+                        log.info("[{}/{}] Processing {}...", processed.get(), total, pkg.coordinate());
+
+                        Path bytecodeJar = client.downloadBytecodeJar(pkg, downloadDir);
+                        if (bytecodeJar == null) {
+                            log.warn("Skipping {} — could not download bytecode JAR.", pkg.coordinate());
+                            stats.recordDownloadFailure();
+                            downloadFailed.add(pkg);
+                            checkpoint.markCompleted(pkg);
+                            resultWriter.appendResult(pkg, Collections.emptySet());
+                            processed.incrementAndGet();
+                            return;
+                        }
+                        Path sourceJar = client.downloadSourceJar(pkg, downloadDir);
+                        stats.recordDownloadSuccess();
+
+                        Future<PackageAnalyzer.AnalysisResult> analysisFuture =
+                                Executors.newSingleThreadExecutor().submit(
+                                        () -> analyzer.analyze(pkg, bytecodeJar, sourceJar));
+
+                        PackageAnalyzer.AnalysisResult result;
+                        try {
+                            result = analysisFuture.get(SCAN_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+                        } catch (TimeoutException e) {
+                            analysisFuture.cancel(true);
+                            log.warn("Scan timed out after {} minutes for {}", SCAN_TIMEOUT_MINUTES, pkg.coordinate());
+                            timedOut.add(pkg);
+                            stats.recordAnalyzerFailure();
+                            checkpoint.markCompleted(pkg);
+                            resultWriter.appendResult(pkg, Collections.emptySet());
+                            processed.incrementAndGet();
+                            return;
+                        }
+
+                        if (result.preprocessorSucceeded()) {
+                            stats.recordPreprocessorSuccess();
+                        } else {
+                            stats.recordPreprocessorFailure();
+                        }
+
+                        if (result.analyzerSucceeded()) {
+                            stats.recordAnalyzerSuccess();
+                            stats.recordEntryPoints(result.entryPointCount());
+                            if (!result.detectedSensitiveApis().isEmpty()) {
+                                stats.recordWithSensitiveApis();
+                                packagesWithApis.add(new PackageWithApis(pkg, result.detectedSensitiveApis()));
+                            } else {
+                                stats.recordWithoutSensitiveApis();
+                            }
+                        } else {
+                            stats.recordAnalyzerFailure();
+                            scanFailed.add(pkg);
+                        }
+
+                        resultWriter.appendResult(pkg, result.detectedSensitiveApis());
+                        checkpoint.markCompleted(pkg);
+
+                        int done = processed.incrementAndGet();
+                        log.info("[{}/{}] Completed {} — {} sensitive APIs detected.",
+                                done, total, pkg.coordinate(), result.detectedSensitiveApis().size());
+
+                    } catch (Exception e) {
+                        log.error("Error processing {}: {}", pkg.coordinate(), e.getMessage(), e);
+                        scanFailed.add(pkg);
                         checkpoint.markCompleted(pkg);
                         resultWriter.appendResult(pkg, Collections.emptySet());
                         processed.incrementAndGet();
-                        return;
+                    } catch (OutOfMemoryError e) {
+                        log.error("OOM while processing {}, skipping.", pkg.coordinate());
+                        oomPackages.add(pkg);
+                        checkpoint.markCompleted(pkg);
+                        resultWriter.appendResult(pkg, Collections.emptySet());
+                        processed.incrementAndGet();
                     }
-                    Path sourceJar = client.downloadSourceJar(pkg, downloadDir);
-                    stats.recordDownloadSuccess();
-
-                    PackageAnalyzer.AnalysisResult result = analyzer.analyze(pkg, bytecodeJar, sourceJar);
-
-                    if (result.preprocessorSucceeded()) {
-                        stats.recordPreprocessorSuccess();
-                    } else {
-                        stats.recordPreprocessorFailure();
-                    }
-
-                    if (result.analyzerSucceeded()) {
-                        stats.recordAnalyzerSuccess();
-                        stats.recordEntryPoints(result.entryPointCount());
-                        if (!result.detectedSensitiveApis().isEmpty()) {
-                            stats.recordWithSensitiveApis();
-                            packagesWithApis.add(new PackageWithApis(pkg, result.detectedSensitiveApis()));
-                        } else {
-                            stats.recordWithoutSensitiveApis();
-                        }
-                    } else {
-                        stats.recordAnalyzerFailure();
-                    }
-
-                    resultWriter.appendResult(pkg, result.detectedSensitiveApis());
-                    checkpoint.markCompleted(pkg);
-
-                    int done = processed.incrementAndGet();
-                    log.info("[{}/{}] Completed {} — {} sensitive APIs detected.",
-                            done, total, pkg.coordinate(), result.detectedSensitiveApis().size());
-
-                } catch (Exception e) {
-                    log.error("Error processing {}: {}", pkg.coordinate(), e.getMessage(), e);
-                    checkpoint.markCompleted(pkg);
-                    resultWriter.appendResult(pkg, Collections.emptySet());
-                    processed.incrementAndGet();
-                } catch (OutOfMemoryError e) {
-                    log.error("OOM while processing {}, skipping.", pkg.coordinate());
-                    checkpoint.markCompleted(pkg);
-                    resultWriter.appendResult(pkg, Collections.emptySet());
-                    processed.incrementAndGet();
-                }
-            }));
-        }
-
-        for (Future<?> f : futures) {
-            try {
-                f.get();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            } catch (ExecutionException e) {
-                log.error("Task failed.", e);
+                }));
             }
-        }
-        executor.shutdown();
-        checkpoint.save();
 
-        // ===== SCM TRACKING =====
+            for (Future<?> f : futures) {
+                try {
+                    f.get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (ExecutionException e) {
+                    log.error("Task failed.", e);
+                }
+            }
+            executor.shutdown();
+            checkpoint.save();
+
+            savePackagesWithApis(packagesWithApis);
+            saveSkippedPackages(downloadFailed, scanFailed, timedOut, oomPackages);
+
+            stats.printSummary(outputDir);
+        } else {
+            log.info("All {} packages already analyzed. Proceeding to SCM tracking / version history.",
+                    allPackages.size());
+        }
+
         if (!packagesWithApis.isEmpty()) {
             trackScmInfo(packagesWithApis, client);
         }
 
-        // ===== VERSION HISTORY =====
         if (analyzeAllVersions && !packagesWithApis.isEmpty()) {
             runVersionHistory(packagesWithApis, client, analyzer, checkpoint);
         }
-
-        stats.printSummary(outputDir);
 
         log.info("Results written to {}", outputDir);
         log.info("  CSV: {}", outputDir.resolve("sensitive_api_usage.csv"));
@@ -185,6 +227,61 @@ public class ScanOrchestrator {
             log.info("  Visualization: {}", outputDir.resolve("permission_changes_report.html"));
         }
     }
+
+    // Persistence for packagesWithApis
+
+    private List<PackageWithApis> loadPackagesWithApis() {
+        Path file = outputDir.resolve("packages_with_sensitive_apis.json");
+        if (Files.exists(file)) {
+            try {
+                List<PackageWithApis> loaded = mapper.readValue(file.toFile(), new TypeReference<>() {});
+                log.info("Loaded {} packages with sensitive APIs from previous run.", loaded.size());
+                return Collections.synchronizedList(new ArrayList<>(loaded));
+            } catch (IOException e) {
+                log.warn("Failed to load packages_with_sensitive_apis.json, starting fresh.", e);
+            }
+        }
+        return Collections.synchronizedList(new ArrayList<>());
+    }
+
+    private void savePackagesWithApis(List<PackageWithApis> packagesWithApis) {
+        try {
+            mapper.writerWithDefaultPrettyPrinter().writeValue(
+                    outputDir.resolve("packages_with_sensitive_apis.json").toFile(), packagesWithApis);
+        } catch (IOException e) {
+            log.error("Failed to save packages_with_sensitive_apis.json.", e);
+        }
+    }
+
+    // Skipped packages tracking
+
+    private void saveSkippedPackages(List<PackageInfo> downloadFailed, List<PackageInfo> scanFailed,
+                                     List<PackageInfo> timedOut, List<PackageInfo> oomPackages) {
+        try {
+            if (!downloadFailed.isEmpty()) {
+                mapper.writerWithDefaultPrettyPrinter().writeValue(
+                        outputDir.resolve("skipped_download_failed.json").toFile(), downloadFailed);
+            }
+            if (!scanFailed.isEmpty()) {
+                mapper.writerWithDefaultPrettyPrinter().writeValue(
+                        outputDir.resolve("skipped_scan_failed.json").toFile(), scanFailed);
+            }
+            if (!timedOut.isEmpty()) {
+                mapper.writerWithDefaultPrettyPrinter().writeValue(
+                        outputDir.resolve("skipped_timed_out.json").toFile(), timedOut);
+            }
+            if (!oomPackages.isEmpty()) {
+                mapper.writerWithDefaultPrettyPrinter().writeValue(
+                        outputDir.resolve("skipped_oom.json").toFile(), oomPackages);
+            }
+            log.info("Skipped packages: {} download failed, {} scan failed, {} timed out, {} OOM",
+                    downloadFailed.size(), scanFailed.size(), timedOut.size(), oomPackages.size());
+        } catch (IOException e) {
+            log.error("Failed to save skipped packages files.", e);
+        }
+    }
+
+    // SCM TRACKING
 
     private void trackScmInfo(List<PackageWithApis> packagesWithApis, MavenCentralClient client) {
         log.info("Extracting SCM info for {} packages with sensitive APIs...", packagesWithApis.size());
@@ -215,7 +312,6 @@ public class ScanOrchestrator {
             }
         }
 
-        ObjectMapper mapper = new ObjectMapper();
         try {
             if (!noScm.isEmpty())
                 mapper.writerWithDefaultPrettyPrinter().writeValue(
@@ -232,6 +328,8 @@ public class ScanOrchestrator {
             log.error("Failed to save SCM tracking files.", e);
         }
     }
+
+    // VERSION HISTORY
 
     private void runVersionHistory(List<PackageWithApis> packagesWithApis,
                                    MavenCentralClient client, PackageAnalyzer analyzer,
@@ -346,5 +444,7 @@ public class ScanOrchestrator {
         return !PRERELEASE_PATTERN.matcher(version).matches();
     }
 
-    private record PackageWithApis(PackageInfo pkg, Set<String> detectedApis) {}
+    // Helper records
+
+    record PackageWithApis(PackageInfo pkg, Set<String> detectedApis) {}
 }
