@@ -29,6 +29,7 @@ public class ScanOrchestrator {
     );
 
     private static final long SCAN_TIMEOUT_MINUTES = 30;
+    private static final int MAX_VERSIONS_PER_PACKAGE = 4242;
 
     private final Path outputDir;
     private final Path downloadDir;
@@ -397,6 +398,12 @@ public class ScanOrchestrator {
             log.info("  {}:{} has only {} stable version(s), skipping.", pkg.groupId(), pkg.artifactId(),
                     stableVersions.size());
             return;
+        }
+
+        if (stableVersions.size() > MAX_VERSIONS_PER_PACKAGE) {
+            log.info("  {}:{} has {} stable versions, capping to {}.",
+                    pkg.groupId(), pkg.artifactId(), stableVersions.size(), MAX_VERSIONS_PER_PACKAGE);
+            stableVersions = stableVersions.subList(stableVersions.size() - MAX_VERSIONS_PER_PACKAGE, stableVersions.size());
         }
 
         log.info("  Analyzing {} stable versions of {}:{}...",

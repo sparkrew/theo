@@ -70,7 +70,7 @@ public class MineCommand implements Runnable {
         int versionHistoryYears;
 
         @CommandLine.Option(names = {"--version-history-batch-size"}, paramLabel = "BATCH",
-                description = "Packages per version-history batch. Default: 100.", defaultValue = "100")
+                description = "Packages per version-history batch. Default: 20.", defaultValue = "20")
         int versionHistoryBatchSize;
 
         @Override
