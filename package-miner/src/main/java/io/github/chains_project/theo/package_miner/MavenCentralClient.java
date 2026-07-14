@@ -20,9 +20,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;;
 
 public class MavenCentralClient {
 
@@ -51,8 +49,9 @@ public class MavenCentralClient {
             throws IOException, InterruptedException {
         boolean collectAll = (count <= 0);
         List<PackageInfo> results = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
         int page = startPage;
-        int skippedLanguage = 0, skippedOld = 0, skippedParsing = 0;
+        int skippedLanguage = 0, skippedOld = 0, skippedParsing = 0, skippedDuplicate = 0;
 
         if (collectAll) {
             log.info("Fetching ALL popular Java packages from ecosyste.ms (starting page {})...", startPage);
@@ -107,6 +106,12 @@ public class MavenCentralClient {
                     continue;
                 }
 
+                String coordinate = groupId + ":" + artifactId + ":" + latestVersion;
+                if (!seen.add(coordinate)) {
+                    skippedDuplicate++;
+                    continue;
+                }
+
                 results.add(new PackageInfo(groupId, artifactId, latestVersion, dependentReposCount));
 
                 if (!collectAll && results.size() >= count) break;
@@ -118,9 +123,9 @@ public class MavenCentralClient {
                 break;
             }
 
-            log.info("Fetched {}{} packages ({} old, {} non-Java, {} unparseable skipped). Page {}.",
+            log.info("Fetched {}{} packages ({} old, {} non-Java, {} unparseable, {} duplicate skipped). Page {}.",
                     results.size(), collectAll ? "" : "/" + count,
-                    skippedOld, skippedLanguage, skippedParsing, page - 1);
+                    skippedOld, skippedLanguage, skippedParsing, skippedDuplicate, page - 1);
             Thread.sleep(RATE_LIMIT_MS);
         }
 

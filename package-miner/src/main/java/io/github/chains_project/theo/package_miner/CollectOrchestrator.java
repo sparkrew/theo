@@ -9,9 +9,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class CollectOrchestrator {
 
@@ -68,8 +66,22 @@ public class CollectOrchestrator {
             return;
         }
 
+        Set<String> existingCoords = new HashSet<>();
+        for (PackageInfo p : existingPackages) {
+            existingCoords.add(p.coordinate());
+        }
         List<PackageInfo> allPackages = new ArrayList<>(existingPackages);
-        allPackages.addAll(newPackages);
+        int duplicates = 0;
+        for (PackageInfo p : newPackages) {
+            if (existingCoords.add(p.coordinate())) {
+                allPackages.add(p);
+            } else {
+                duplicates++;
+            }
+        }
+        if (duplicates > 0) {
+            log.info("Skipped {} duplicate packages during merge.", duplicates);
+        }
 
         try {
             mapper.writerWithDefaultPrettyPrinter().writeValue(listFile.toFile(), allPackages);
