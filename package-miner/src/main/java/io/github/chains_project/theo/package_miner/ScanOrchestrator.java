@@ -128,8 +128,9 @@ public class ScanOrchestrator {
                         Path sourceJar = client.downloadSourceJar(pkg, downloadDir);
                         stats.recordDownloadSuccess();
 
+                        ExecutorService timeoutExecutor = Executors.newSingleThreadExecutor();
                         Future<PackageAnalyzer.AnalysisResult> analysisFuture =
-                                Executors.newSingleThreadExecutor().submit(
+                                timeoutExecutor.submit(
                                         () -> analyzer.analyze(pkg, bytecodeJar, sourceJar));
 
                         PackageAnalyzer.AnalysisResult result;
@@ -144,6 +145,8 @@ public class ScanOrchestrator {
                             resultWriter.appendResult(pkg, Collections.emptySet());
                             processed.incrementAndGet();
                             return;
+                        } finally {
+                            timeoutExecutor.shutdownNow();
                         }
 
                         if (result.preprocessorSucceeded()) {
