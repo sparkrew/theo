@@ -205,7 +205,6 @@ public class ScanOrchestrator {
             executor.shutdown();
             checkpoint.save();
 
-            savePackagesWithApis(packagesWithApis);
             saveSkippedPackages(downloadFailed, scanFailed, timedOut, oomPackages);
 
             stats.printSummary(outputDir);
@@ -235,26 +234,50 @@ public class ScanOrchestrator {
     // Persistence for packagesWithApis
 
     private List<PackageWithApis> loadPackagesWithApis() {
-        Path file = outputDir.resolve("packages_with_sensitive_apis.json");
-        if (Files.exists(file)) {
+        Path csvFile = outputDir.resolve("sensitive_api_usage.csv");
+        if (Files.exists(csvFile)) {
             try {
-                List<PackageWithApis> loaded = mapper.readValue(file.toFile(), new TypeReference<>() {});
-                log.info("Loaded {} packages with sensitive APIs from previous run.", loaded.size());
-                return Collections.synchronizedList(new ArrayList<>(loaded));
+                List<String> lines = Files.readAllLines(csvFile);
+                if (lines.size() > 1) {
+                    String[] header = lines.get(0).split(",");
+                    List<String> apiColumns = new ArrayList<>();
+                    for (int i = 3; i < header.length; i++) {
+                        apiColumns.add(header[i]);
+                    }
+
+                    List<PackageWithApis> loaded = new ArrayList<>();
+                    for (int row = 1; row < lines.size(); row++) {
+                        String[] cols = lines.get(row).split(",");
+                        if (cols.length < 3) continue;
+
+                        String groupId = cols[0];
+                        String artifactId = cols[1];
+                        String version = cols[2];
+                        Set<String> detectedApis = new HashSet<>();
+
+                        for (int i = 3; i < cols.length && (i - 3) < apiColumns.size(); i++) {
+                            if ("True".equals(cols[i])) {
+                                detectedApis.add(apiColumns.get(i - 3));
+                            }
+                        }
+
+                        if (!detectedApis.isEmpty()) {
+                            loaded.add(new PackageWithApis(
+                                    new PackageInfo(groupId, artifactId, version, 0), detectedApis));
+                        }
+                    }
+
+                    if (!loaded.isEmpty()) {
+                        log.info("Loaded {} packages with sensitive APIs from CSV.", loaded.size());
+                        return Collections.synchronizedList(new ArrayList<>(loaded));
+                    }
+                }
             } catch (IOException e) {
-                log.warn("Failed to load packages_with_sensitive_apis.json, starting fresh.", e);
+                log.warn("Failed to read CSV.", e);
             }
         }
-        return Collections.synchronizedList(new ArrayList<>());
-    }
 
-    private void savePackagesWithApis(List<PackageWithApis> packagesWithApis) {
-        try {
-            mapper.writerWithDefaultPrettyPrinter().writeValue(
-                    outputDir.resolve("packages_with_sensitive_apis.json").toFile(), packagesWithApis);
-        } catch (IOException e) {
-            log.error("Failed to save packages_with_sensitive_apis.json.", e);
-        }
+        return Collections.synchronizedList(new ArrayList<>());
     }
 
     // Skipped packages tracking
