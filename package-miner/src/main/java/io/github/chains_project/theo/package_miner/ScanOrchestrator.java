@@ -87,30 +87,19 @@ public class ScanOrchestrator {
             }
         }
 
-        List<PackageWithApis> packagesWithApis = loadPackagesWithApis();
-        boolean analysisNeeded = false;
+        List<PackageWithApis> newPackagesWithApis = Collections.synchronizedList(new ArrayList<>());
+
+        AtomicInteger processed = new AtomicInteger(checkpoint.completedCount());
+        int total = allPackages.size();
+
+        ExecutorService executor = Executors.newFixedThreadPool(workers);
+        List<Future<?>> futures = new ArrayList<>();
+
+        int queued = 0;
         for (PackageInfo pkg : allPackages) {
-            if (!checkpoint.isCompleted(pkg)) {
-                analysisNeeded = true;
-                break;
-            }
-        }
-
-        if (analysisNeeded) {
-            log.info("Starting analysis of {} packages with {} workers. {} already completed.",
-                    allPackages.size(), workers, checkpoint.completedCount());
-
-            AtomicInteger processed = new AtomicInteger(checkpoint.completedCount());
-            int total = allPackages.size();
-
-            ExecutorService executor = Executors.newFixedThreadPool(workers);
-            List<Future<?>> futures = new ArrayList<>();
-
-            int queued = 0;
-            for (PackageInfo pkg : allPackages) {
-                if (checkpoint.isCompleted(pkg)) continue;
-                if (limit > 0 && queued >= limit) break;
-                queued++;
+            if (checkpoint.isCompleted(pkg)) continue;
+            if (limit > 0 && queued >= limit) break;
+            queued++;
 
                 futures.add(executor.submit(() -> {
                     try {
@@ -161,7 +150,7 @@ public class ScanOrchestrator {
                             stats.recordEntryPoints(result.entryPointCount());
                             if (!result.detectedSensitiveApis().isEmpty()) {
                                 stats.recordWithSensitiveApis();
-                                packagesWithApis.add(new PackageWithApis(pkg, result.detectedSensitiveApis()));
+                                newPackagesWithApis.add(new PackageWithApis(pkg, result.detectedSensitiveApis()));
                             } else {
                                 stats.recordWithoutSensitiveApis();
                             }
@@ -193,6 +182,10 @@ public class ScanOrchestrator {
                 }));
             }
 
+        if (queued > 0) {
+            log.info("Starting analysis of {} packages with {} workers. {} already completed.",
+                    queued, workers, checkpoint.completedCount());
+
             for (Future<?> f : futures) {
                 try {
                     f.get();
@@ -203,14 +196,15 @@ public class ScanOrchestrator {
                     log.error("Task failed.", e);
                 }
             }
-            executor.shutdown();
             checkpoint.save();
 
             stats.printSummary(outputDir);
         } else {
-            log.info("All {} packages already analyzed. Proceeding to SCM tracking / version history.",
-                    allPackages.size());
+            log.info("All packages already analyzed. Proceeding to SCM tracking / version history.");
         }
+        executor.shutdown();
+
+        List<PackageWithApis> packagesWithApis = loadPackagesWithApis();
 
         if (!packagesWithApis.isEmpty()) {
             trackScmInfo(packagesWithApis, client);
