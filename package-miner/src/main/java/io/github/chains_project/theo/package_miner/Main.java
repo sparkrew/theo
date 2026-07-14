@@ -25,7 +25,7 @@ public class Main {
      */
     @CommandLine.Command(
             name = "package-miner",
-            subcommands = {MineCommand.class},
+            subcommands = {MineCommand.class, RecoverSkippedCommand.class},
             mixinStandardHelpOptions = true,
             version = "0.1"
     )

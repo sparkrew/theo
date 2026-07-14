@@ -100,11 +100,6 @@ public class ScanOrchestrator {
             AtomicInteger processed = new AtomicInteger(checkpoint.completedCount());
             int total = allPackages.size();
 
-            List<PackageInfo> downloadFailed = Collections.synchronizedList(new ArrayList<>());
-            List<PackageInfo> scanFailed = Collections.synchronizedList(new ArrayList<>());
-            List<PackageInfo> timedOut = Collections.synchronizedList(new ArrayList<>());
-            List<PackageInfo> oomPackages = Collections.synchronizedList(new ArrayList<>());
-
             ExecutorService executor = Executors.newFixedThreadPool(workers);
             List<Future<?>> futures = new ArrayList<>();
 
@@ -119,7 +114,7 @@ public class ScanOrchestrator {
                         if (bytecodeJar == null) {
                             log.warn("Skipping {} — could not download bytecode JAR.", pkg.coordinate());
                             stats.recordDownloadFailure();
-                            downloadFailed.add(pkg);
+                            appendSkipped("skipped_download_failed.json", pkg);
                             checkpoint.markCompleted(pkg);
                             resultWriter.appendResult(pkg, Collections.emptySet());
                             processed.incrementAndGet();
@@ -139,7 +134,7 @@ public class ScanOrchestrator {
                         } catch (TimeoutException e) {
                             analysisFuture.cancel(true);
                             log.warn("Scan timed out after {} minutes for {}", SCAN_TIMEOUT_MINUTES, pkg.coordinate());
-                            timedOut.add(pkg);
+                            appendSkipped("skipped_timed_out.json", pkg);
                             stats.recordAnalyzerFailure();
                             checkpoint.markCompleted(pkg);
                             resultWriter.appendResult(pkg, Collections.emptySet());
@@ -166,7 +161,7 @@ public class ScanOrchestrator {
                             }
                         } else {
                             stats.recordAnalyzerFailure();
-                            scanFailed.add(pkg);
+                            appendSkipped("skipped_scan_failed.json", pkg);
                         }
 
                         resultWriter.appendResult(pkg, result.detectedSensitiveApis());
@@ -178,13 +173,13 @@ public class ScanOrchestrator {
 
                     } catch (Exception e) {
                         log.error("Error processing {}: {}", pkg.coordinate(), e.getMessage(), e);
-                        scanFailed.add(pkg);
+                        appendSkipped("skipped_scan_failed.json", pkg);
                         checkpoint.markCompleted(pkg);
                         resultWriter.appendResult(pkg, Collections.emptySet());
                         processed.incrementAndGet();
                     } catch (OutOfMemoryError e) {
                         log.error("OOM while processing {}, skipping.", pkg.coordinate());
-                        oomPackages.add(pkg);
+                        appendSkipped("skipped_oom.json", pkg);
                         checkpoint.markCompleted(pkg);
                         resultWriter.appendResult(pkg, Collections.emptySet());
                         processed.incrementAndGet();
@@ -204,8 +199,6 @@ public class ScanOrchestrator {
             }
             executor.shutdown();
             checkpoint.save();
-
-            saveSkippedPackages(downloadFailed, scanFailed, timedOut, oomPackages);
 
             stats.printSummary(outputDir);
         } else {
@@ -282,29 +275,19 @@ public class ScanOrchestrator {
 
     // Skipped packages tracking
 
-    private void saveSkippedPackages(List<PackageInfo> downloadFailed, List<PackageInfo> scanFailed,
-                                     List<PackageInfo> timedOut, List<PackageInfo> oomPackages) {
+    private synchronized void appendSkipped(String filename, PackageInfo pkg) {
+        Path file = outputDir.resolve(filename);
         try {
-            if (!downloadFailed.isEmpty()) {
-                mapper.writerWithDefaultPrettyPrinter().writeValue(
-                        outputDir.resolve("skipped_download_failed.json").toFile(), downloadFailed);
+            List<PackageInfo> existing;
+            if (Files.exists(file)) {
+                existing = mapper.readValue(file.toFile(), new TypeReference<List<PackageInfo>>() {});
+            } else {
+                existing = new ArrayList<>();
             }
-            if (!scanFailed.isEmpty()) {
-                mapper.writerWithDefaultPrettyPrinter().writeValue(
-                        outputDir.resolve("skipped_scan_failed.json").toFile(), scanFailed);
-            }
-            if (!timedOut.isEmpty()) {
-                mapper.writerWithDefaultPrettyPrinter().writeValue(
-                        outputDir.resolve("skipped_timed_out.json").toFile(), timedOut);
-            }
-            if (!oomPackages.isEmpty()) {
-                mapper.writerWithDefaultPrettyPrinter().writeValue(
-                        outputDir.resolve("skipped_oom.json").toFile(), oomPackages);
-            }
-            log.info("Skipped packages: {} download failed, {} scan failed, {} timed out, {} OOM",
-                    downloadFailed.size(), scanFailed.size(), timedOut.size(), oomPackages.size());
+            existing.add(pkg);
+            mapper.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), existing);
         } catch (IOException e) {
-            log.error("Failed to save skipped packages files.", e);
+            log.error("Failed to append to {}.", filename, e);
         }
     }
 
