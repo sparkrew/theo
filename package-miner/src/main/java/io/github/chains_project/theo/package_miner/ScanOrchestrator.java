@@ -355,8 +355,6 @@ public class ScanOrchestrator {
         log.info("  Batch size: {}, years: {}", versionHistoryBatchSize, versionHistoryYears);
         log.info("=============================================================");
 
-        packagesWithApis.sort((a, b) -> Integer.compare(b.detectedApis.size(), a.detectedApis.size()));
-
         int startBatch = checkpoint.getVersionHistoryBatchIndex();
         int totalModules = packagesWithApis.size();
         VersionHistoryTracker tracker = new VersionHistoryTracker();
