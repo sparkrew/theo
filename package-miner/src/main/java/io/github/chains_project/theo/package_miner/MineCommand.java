@@ -73,13 +73,18 @@ public class MineCommand implements Runnable {
                 description = "Packages per version-history batch. Default: 20.", defaultValue = "20")
         int versionHistoryBatchSize;
 
+        @CommandLine.Option(names = {"--limit"}, paramLabel = "LIMIT",
+                description = "Max number of packages to analyze. 0 = all. Default: 0.",
+                defaultValue = "0")
+        int limit;
+
         @Override
         public void run() {
             if (downloadDir == null) {
                 downloadDir = outputDir.resolve("jars");
             }
             new ScanOrchestrator(outputDir, downloadDir, analyzerJar, workers,
-                    analyzeAllVersions, versionHistoryYears, versionHistoryBatchSize).run();
+                    analyzeAllVersions, versionHistoryYears, versionHistoryBatchSize, limit).run();
         }
     }
 }

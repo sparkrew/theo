@@ -38,11 +38,13 @@ public class ScanOrchestrator {
     private final boolean analyzeAllVersions;
     private final int versionHistoryYears;
     private final int versionHistoryBatchSize;
+    private final int limit;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public ScanOrchestrator(Path outputDir, Path downloadDir, Path analyzerJar,
                             int workers, boolean analyzeAllVersions,
-                            int versionHistoryYears, int versionHistoryBatchSize) {
+                            int versionHistoryYears, int versionHistoryBatchSize,
+                            int limit) {
         this.outputDir = outputDir;
         this.downloadDir = downloadDir;
         this.analyzerJar = analyzerJar;
@@ -50,6 +52,7 @@ public class ScanOrchestrator {
         this.analyzeAllVersions = analyzeAllVersions;
         this.versionHistoryYears = versionHistoryYears;
         this.versionHistoryBatchSize = versionHistoryBatchSize;
+        this.limit = limit;
     }
 
     public void run() {
@@ -103,8 +106,11 @@ public class ScanOrchestrator {
             ExecutorService executor = Executors.newFixedThreadPool(workers);
             List<Future<?>> futures = new ArrayList<>();
 
+            int queued = 0;
             for (PackageInfo pkg : allPackages) {
                 if (checkpoint.isCompleted(pkg)) continue;
+                if (limit > 0 && queued >= limit) break;
+                queued++;
 
                 futures.add(executor.submit(() -> {
                     try {
