@@ -291,6 +291,22 @@ public class ScanOrchestrator {
         }
     }
 
+    private synchronized void appendSkippedVersion(String filename, VersionInfo ver) {
+        Path file = outputDir.resolve(filename);
+        try {
+            List<VersionInfo> existing;
+            if (Files.exists(file)) {
+                existing = mapper.readValue(file.toFile(), new TypeReference<List<VersionInfo>>() {});
+            } else {
+                existing = new ArrayList<>();
+            }
+            existing.add(ver);
+            mapper.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), existing);
+        } catch (IOException e) {
+            log.error("Failed to append to {}.", filename, e);
+        }
+    }
+
     // SCM TRACKING
 
     private void trackScmInfo(List<PackageWithApis> packagesWithApis, MavenCentralClient client) {
@@ -422,11 +438,29 @@ public class ScanOrchestrator {
             try {
                 PackageInfo versionPkg = ver.toPackageInfo();
                 Path bytecodeJar = client.downloadBytecodeJarForVersion(ver, downloadDir);
-                if (bytecodeJar == null) continue;
+                if (bytecodeJar == null) {
+                    appendSkippedVersion("skipped_version_download_failed.json", ver);
+                    continue;
+                }
 
                 Path sourceJar = client.downloadSourceJarForVersion(ver, downloadDir);
 
-                PackageAnalyzer.AnalysisResult result = analyzer.analyze(versionPkg, bytecodeJar, sourceJar);
+                ExecutorService timeoutExecutor = Executors.newSingleThreadExecutor();
+                Future<PackageAnalyzer.AnalysisResult> analysisFuture =
+                        timeoutExecutor.submit(() -> analyzer.analyze(versionPkg, bytecodeJar, sourceJar));
+
+                PackageAnalyzer.AnalysisResult result;
+                try {
+                    result = analysisFuture.get(SCAN_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+                } catch (TimeoutException e) {
+                    analysisFuture.cancel(true);
+                    log.warn("  Version {} timed out after {} minutes, skipping.", ver.coordinate(), SCAN_TIMEOUT_MINUTES);
+                    appendSkippedVersion("skipped_version_timed_out.json", ver);
+                    continue;
+                } finally {
+                    timeoutExecutor.shutdownNow();
+                }
+
                 if (result.analyzerSucceeded()) {
                     String reportKey = ver.groupId() + "_" + ver.artifactId() + "_" + ver.version();
                     Path reportFile = outputDir.resolve("reports").resolve(reportKey + "-report.json");
@@ -434,9 +468,15 @@ public class ScanOrchestrator {
                         reportEntries.add(new VersionHistoryTracker.VersionReportEntry(
                                 ver.version(), ver.timestamp(), reportFile));
                     }
+                } else {
+                    appendSkippedVersion("skipped_version_scan_failed.json", ver);
                 }
+            } catch (OutOfMemoryError e) {
+                log.warn("  OOM analyzing version {}, skipping.", ver.coordinate());
+                appendSkippedVersion("skipped_version_oom.json", ver);
             } catch (Exception e) {
                 log.debug("  Failed to analyze version {}: {}", ver.coordinate(), e.getMessage());
+                appendSkippedVersion("skipped_version_scan_failed.json", ver);
             }
         }
 
