@@ -403,6 +403,13 @@ public class ScanOrchestrator {
 
     private void processVersionHistory(PackageInfo pkg, MavenCentralClient client,
                                         PackageAnalyzer analyzer, VersionHistoryTracker tracker) {
+        // TODO: remove this skip block once these packages are processed
+        if (pkg.coordinate().startsWith("org.springframework.boot:spring-boot-starter-test:")
+                || pkg.coordinate().startsWith("org.springframework.boot:spring-boot-starter-web:")) {
+            log.info("  Skipping {} (temporary skip).", pkg.coordinate());
+            return;
+        }
+
         log.info("  Fetching versions for {}:{}...", pkg.groupId(), pkg.artifactId());
 
         List<VersionInfo> allVersions;
