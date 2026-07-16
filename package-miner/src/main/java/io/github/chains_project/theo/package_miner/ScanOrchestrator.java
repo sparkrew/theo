@@ -403,10 +403,10 @@ public class ScanOrchestrator {
 
     private void processVersionHistory(PackageInfo pkg, MavenCentralClient client,
                                         PackageAnalyzer analyzer, VersionHistoryTracker tracker) {
-        // TODO: remove this skip block once these packages are processed
-        if (pkg.coordinate().startsWith("org.springframework.boot:spring-boot-starter-test:")
-                || pkg.coordinate().startsWith("org.springframework.boot:spring-boot-starter-web:")) {
-            log.info("  Skipping {} (temporary skip).", pkg.coordinate());
+        // TODO: remove this skip block and delete skipped_springboot_for_later.json when done
+        if ("org.springframework.boot".equals(pkg.groupId())) {
+            log.info("  Skipping {} (spring-boot deferred).", pkg.coordinate());
+            appendSkipped("skipped_springboot_for_later.json", pkg);
             return;
         }
 
