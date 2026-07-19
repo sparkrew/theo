@@ -3,6 +3,8 @@ package io.github.chains_project.theo.package_miner;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.chains_project.theo.package_miner.model.VersionHistory;
+import io.github.chains_project.theo.package_miner.util.MavenVersionParser;
+import io.github.chains_project.theo.package_miner.util.ReleaseLineGrouper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,46 +13,60 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 
-/**
- * Analyzes multiple versions of a package to track how sensitive API usage changes over time.
- *
- * For each version, parses the analyzer report to extract direct and indirect API accesses,
- * then computes diffs between consecutive versions to identify permission changes.
- */
 public class VersionHistoryTracker {
 
     private static final Logger log = LoggerFactory.getLogger(VersionHistoryTracker.class);
     private final ObjectMapper mapper = new ObjectMapper();
 
-    /**
-     * Builds the version history for a package from a list of analyzer reports,
-     * one per version (ordered oldest to newest).
-     */
     public VersionHistory.PackageVersionHistory buildHistory(
             String groupId, String artifactId,
             List<VersionReportEntry> versionReports) {
 
-        List<VersionHistory.VersionSnapshot> snapshots = new ArrayList<>();
+        Map<String, VersionHistory.VersionSnapshot> snapshotByVersion = new LinkedHashMap<>();
 
         for (VersionReportEntry entry : versionReports) {
             VersionHistory.VersionSnapshot snapshot = parseSnapshot(entry);
             if (snapshot != null) {
-                snapshots.add(snapshot);
+                snapshotByVersion.put(snapshot.version(), snapshot);
+            }
+        }
+
+        if (snapshotByVersion.size() < 2) {
+            return new VersionHistory.PackageVersionHistory(groupId, artifactId,
+                    new ArrayList<>(snapshotByVersion.values()), List.of(), false);
+        }
+
+        List<MavenVersionParser.ParsedVersion> parsedVersions = snapshotByVersion.keySet().stream()
+                .map(MavenVersionParser::parse)
+                .toList();
+
+        List<ReleaseLineGrouper.ReleaseLine> lines = ReleaseLineGrouper.group(new ArrayList<>(parsedVersions));
+        List<ReleaseLineGrouper.ComparisonPair> pairs = ReleaseLineGrouper.buildComparisonPairs(lines);
+
+        List<VersionHistory.VersionSnapshot> orderedSnapshots = new ArrayList<>();
+        for (MavenVersionParser.ParsedVersion pv : ReleaseLineGrouper.orderedVersions(lines)) {
+            VersionHistory.VersionSnapshot snap = snapshotByVersion.get(pv.raw());
+            if (snap != null) {
+                orderedSnapshots.add(snap);
             }
         }
 
         List<VersionHistory.PermissionChange> changes = new ArrayList<>();
         boolean hasChanges = false;
 
-        for (int i = 1; i < snapshots.size(); i++) {
-            VersionHistory.PermissionChange change = computeChange(snapshots.get(i - 1), snapshots.get(i));
+        for (ReleaseLineGrouper.ComparisonPair pair : pairs) {
+            VersionHistory.VersionSnapshot from = snapshotByVersion.get(pair.fromVersion());
+            VersionHistory.VersionSnapshot to = snapshotByVersion.get(pair.toVersion());
+            if (from == null || to == null) continue;
+
+            VersionHistory.PermissionChange change = computeChange(from, to, pair.type().name());
             if (change.hasChanges()) {
                 hasChanges = true;
             }
             changes.add(change);
         }
 
-        return new VersionHistory.PackageVersionHistory(groupId, artifactId, snapshots, changes, hasChanges);
+        return new VersionHistory.PackageVersionHistory(groupId, artifactId, orderedSnapshots, changes, hasChanges);
     }
 
     private VersionHistory.VersionSnapshot parseSnapshot(VersionReportEntry entry) {
@@ -82,7 +98,6 @@ public class VersionHistoryTracker {
                 }
             }
 
-            // APIs that appear in both direct and indirect: keep in direct, remove from indirect
             indirectApis.removeAll(directApis);
 
             return new VersionHistory.VersionSnapshot(
@@ -95,7 +110,8 @@ public class VersionHistoryTracker {
     }
 
     private VersionHistory.PermissionChange computeChange(
-            VersionHistory.VersionSnapshot from, VersionHistory.VersionSnapshot to) {
+            VersionHistory.VersionSnapshot from, VersionHistory.VersionSnapshot to,
+            String comparisonType) {
 
         Set<String> addedDirect = new HashSet<>(to.directApis());
         addedDirect.removeAll(from.directApis());
@@ -110,14 +126,11 @@ public class VersionHistoryTracker {
         removedIndirect.removeAll(to.indirectApis());
 
         return new VersionHistory.PermissionChange(
-                from.version(), to.version(),
+                from.version(), to.version(), comparisonType,
                 addedDirect, removedDirect, addedIndirect, removedIndirect
         );
     }
 
-    /**
-     * Saves the version history JSON for a package.
-     */
     public void saveHistory(VersionHistory.PackageVersionHistory history, Path outputDir) throws IOException {
         Path historyDir = outputDir.resolve("version-history");
         Files.createDirectories(historyDir);
@@ -125,8 +138,5 @@ public class VersionHistoryTracker {
         mapper.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), history);
     }
 
-    /**
-     * Associates a version string with its analyzer report file path and release timestamp.
-     */
     public record VersionReportEntry(String version, long timestamp, Path reportFile) {}
 }

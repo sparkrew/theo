@@ -1,5 +1,6 @@
 package io.github.chains_project.theo.package_miner.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
@@ -20,14 +21,22 @@ public class VersionHistory {
         }
     }
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record PermissionChange(
             @JsonProperty("fromVersion") String fromVersion,
             @JsonProperty("toVersion") String toVersion,
+            @JsonProperty("comparisonType") String comparisonType,
             @JsonProperty("addedDirect") Set<String> addedDirect,
             @JsonProperty("removedDirect") Set<String> removedDirect,
             @JsonProperty("addedIndirect") Set<String> addedIndirect,
             @JsonProperty("removedIndirect") Set<String> removedIndirect
     ) {
+        public PermissionChange(String fromVersion, String toVersion,
+                                Set<String> addedDirect, Set<String> removedDirect,
+                                Set<String> addedIndirect, Set<String> removedIndirect) {
+            this(fromVersion, toVersion, "WITHIN_LINE", addedDirect, removedDirect, addedIndirect, removedIndirect);
+        }
+
         public boolean hasChanges() {
             return !addedDirect.isEmpty() || !removedDirect.isEmpty()
                     || !addedIndirect.isEmpty() || !removedIndirect.isEmpty();

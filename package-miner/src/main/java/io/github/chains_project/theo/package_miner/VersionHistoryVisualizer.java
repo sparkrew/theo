@@ -3,6 +3,7 @@ package io.github.chains_project.theo.package_miner;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.chains_project.theo.package_miner.model.VersionHistory;
+import io.github.chains_project.theo.package_miner.util.MavenVersionParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -146,11 +147,29 @@ public class VersionHistoryVisualizer {
         long stableCount = histories.size() - changedCount;
         long totalVersions = histories.stream().mapToLong(h -> h.snapshots().size()).sum();
 
+        int patchChanges = 0, minorChanges = 0, majorChanges = 0;
+        for (VersionHistory.PackageVersionHistory h : histories) {
+            for (VersionHistory.PermissionChange c : h.changes()) {
+                if (!c.hasChanges()) continue;
+                String bumpType = classifyBump(c.fromVersion(), c.toVersion());
+                switch (bumpType) {
+                    case "patch" -> patchChanges++;
+                    case "minor" -> minorChanges++;
+                    case "major" -> majorChanges++;
+                }
+            }
+        }
+
         sb.append("<div class=\"stats\">\n");
         sb.append(statCard("Total Packages", String.valueOf(histories.size()), ""));
         sb.append(statCard("With Changes", String.valueOf(changedCount), "changed"));
         sb.append(statCard("Stable", String.valueOf(stableCount), "stable"));
         sb.append(statCard("Total Versions Analyzed", String.valueOf(totalVersions), ""));
+        sb.append("</div>\n");
+        sb.append("<div class=\"stats\">\n");
+        sb.append(statCard("Patch bumps with API changes", String.valueOf(patchChanges), "changed"));
+        sb.append(statCard("Minor bumps with API changes", String.valueOf(minorChanges), "changed"));
+        sb.append(statCard("Major bumps with API changes", String.valueOf(majorChanges), ""));
         sb.append("</div>\n");
 
         sb.append("""
@@ -280,8 +299,9 @@ public class VersionHistoryVisualizer {
 
         sb.append("<div class=\"change-log\">\n<h4>Change Log</h4>\n");
         for (VersionHistory.PermissionChange c : significantChanges) {
-            sb.append(String.format("<div class=\"change-entry\"><strong>%s &rarr; %s</strong><br>",
-                    escapeHtml(c.fromVersion()), escapeHtml(c.toVersion())));
+            String label = "CROSS_LINE".equals(c.comparisonType()) ? "MAJOR: " : "";
+            sb.append(String.format("<div class=\"change-entry\"><strong>%s%s &rarr; %s</strong><br>",
+                    label, escapeHtml(c.fromVersion()), escapeHtml(c.toVersion())));
             for (String api : c.addedDirect()) {
                 sb.append(String.format("<span class=\"badge added\">+ %s (direct)</span> ", escapeHtml(api)));
             }
@@ -303,6 +323,14 @@ public class VersionHistoryVisualizer {
         return String.format(
                 "<div class=\"stat-card %s\"><div class=\"number\">%s</div><div class=\"label\">%s</div></div>\n",
                 cssClass, number, label);
+    }
+
+    private String classifyBump(String fromVersion, String toVersion) {
+        MavenVersionParser.ParsedVersion from = MavenVersionParser.parse(fromVersion);
+        MavenVersionParser.ParsedVersion to = MavenVersionParser.parse(toVersion);
+        if (from.major() != to.major()) return "major";
+        if (from.minor() != to.minor()) return "minor";
+        return "patch";
     }
 
     private String escapeHtml(String s) {
