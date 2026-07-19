@@ -185,19 +185,24 @@ public class VersionHistoryVisualizer {
 
         // Summary table
         sb.append("<table class=\"summary-table\">\n");
-        sb.append("<tr><th>#</th><th>Package</th><th>Versions</th><th>Status</th><th>Changes</th></tr>\n");
+        sb.append("<tr><th>#</th><th>Package</th><th>Versions</th><th>Status</th><th>Patch</th><th>Minor</th><th>Major</th></tr>\n");
         int idx = 0;
         for (VersionHistory.PackageVersionHistory h : histories) {
             idx++;
             String status = h.hasPermissionChanges()
                     ? "<span class=\"badge changed\">CHANGED</span>"
                     : "<span class=\"badge stable\">STABLE</span>";
-            long changeCount = h.changes().stream().filter(VersionHistory.PermissionChange::hasChanges).count();
-            String changeText = changeCount > 0
-                    ? changeCount + " version transition" + (changeCount > 1 ? "s" : "")
-                    : "-";
-            sb.append(String.format("<tr><td>%d</td><td><a href=\"#pkg-%d\">%s:%s</a></td><td>%d</td><td>%s</td><td>%s</td></tr>\n",
-                    idx, idx, h.groupId(), h.artifactId(), h.snapshots().size(), status, changeText));
+            int pkgPatch = 0, pkgMinor = 0, pkgMajor = 0;
+            for (VersionHistory.PermissionChange c : h.changes()) {
+                if (!c.hasChanges()) continue;
+                switch (classifyBump(c.fromVersion(), c.toVersion())) {
+                    case "patch" -> pkgPatch++;
+                    case "minor" -> pkgMinor++;
+                    case "major" -> pkgMajor++;
+                }
+            }
+            sb.append(String.format("<tr><td>%d</td><td><a href=\"#pkg-%d\">%s:%s</a></td><td>%d</td><td>%s</td><td>%d</td><td>%d</td><td>%d</td></tr>\n",
+                    idx, idx, h.groupId(), h.artifactId(), h.snapshots().size(), status, pkgPatch, pkgMinor, pkgMajor));
         }
         sb.append("</table>\n");
 
