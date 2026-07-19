@@ -47,7 +47,7 @@ class ReleaseLineGrouperTest {
         assertEquals(2, pairs.size());
         assertEquals("1.0.0", pairs.get(0).fromVersion());
         assertEquals("1.1.0", pairs.get(0).toVersion());
-        assertEquals(ComparisonType.WITHIN_LINE, pairs.get(0).type());
+        assertEquals(ComparisonType.NON_MAJOR, pairs.get(0).type());
         assertEquals("1.1.0", pairs.get(1).fromVersion());
         assertEquals("1.2.0", pairs.get(1).toVersion());
     }
@@ -62,7 +62,7 @@ class ReleaseLineGrouperTest {
         // within line 1
         assertEquals("1.0.0", pairs.get(0).fromVersion());
         assertEquals("1.1.0", pairs.get(0).toVersion());
-        assertEquals(ComparisonType.WITHIN_LINE, pairs.get(0).type());
+        assertEquals(ComparisonType.NON_MAJOR, pairs.get(0).type());
         // cross line
         assertEquals("1.1.0", pairs.get(1).fromVersion());
         assertEquals("2.0.0", pairs.get(1).toVersion());
@@ -70,7 +70,7 @@ class ReleaseLineGrouperTest {
         // within line 2
         assertEquals("2.0.0", pairs.get(2).fromVersion());
         assertEquals("2.1.0", pairs.get(2).toVersion());
-        assertEquals(ComparisonType.WITHIN_LINE, pairs.get(2).type());
+        assertEquals(ComparisonType.NON_MAJOR, pairs.get(2).type());
     }
 
     @Test
@@ -92,7 +92,7 @@ class ReleaseLineGrouperTest {
         assertEquals(3, pairs.size());
         assertEquals("2.13.3", pairs.get(0).fromVersion());
         assertEquals("2.13.4", pairs.get(0).toVersion());
-        assertEquals(ComparisonType.WITHIN_LINE, pairs.get(0).type());
+        assertEquals(ComparisonType.NON_MAJOR, pairs.get(0).type());
 
         assertEquals("2.13.4", pairs.get(1).fromVersion());
         assertEquals("3.0.0", pairs.get(1).toVersion());
@@ -100,7 +100,7 @@ class ReleaseLineGrouperTest {
 
         assertEquals("3.0.0", pairs.get(2).fromVersion());
         assertEquals("3.0.1", pairs.get(2).toVersion());
-        assertEquals(ComparisonType.WITHIN_LINE, pairs.get(2).type());
+        assertEquals(ComparisonType.NON_MAJOR, pairs.get(2).type());
     }
 
     @Test

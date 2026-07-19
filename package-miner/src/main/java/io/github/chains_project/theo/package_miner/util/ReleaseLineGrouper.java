@@ -9,7 +9,7 @@ public class ReleaseLineGrouper {
 
     public record ComparisonPair(String fromVersion, String toVersion, ComparisonType type) {}
 
-    public enum ComparisonType { WITHIN_LINE, CROSS_LINE }
+    public enum ComparisonType { NON_MAJOR, CROSS_LINE }
 
     public static List<ReleaseLine> group(List<MavenVersionParser.ParsedVersion> versions) {
         Map<Integer, List<MavenVersionParser.ParsedVersion>> grouped = versions.stream()
@@ -37,7 +37,7 @@ public class ReleaseLineGrouper {
                 pairs.add(new ComparisonPair(
                         versions.get(j - 1).raw(),
                         versions.get(j).raw(),
-                        ComparisonType.WITHIN_LINE));
+                        ComparisonType.NON_MAJOR));
             }
 
             if (i + 1 < lines.size()) {

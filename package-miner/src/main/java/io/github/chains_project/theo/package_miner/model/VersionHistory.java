@@ -34,7 +34,7 @@ public class VersionHistory {
         public PermissionChange(String fromVersion, String toVersion,
                                 Set<String> addedDirect, Set<String> removedDirect,
                                 Set<String> addedIndirect, Set<String> removedIndirect) {
-            this(fromVersion, toVersion, "WITHIN_LINE", addedDirect, removedDirect, addedIndirect, removedIndirect);
+            this(fromVersion, toVersion, "NON_MAJOR", addedDirect, removedDirect, addedIndirect, removedIndirect);
         }
 
         public boolean hasChanges() {
