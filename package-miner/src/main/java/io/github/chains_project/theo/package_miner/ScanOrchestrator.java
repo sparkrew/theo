@@ -453,10 +453,21 @@ public class ScanOrchestrator {
                 stableVersions.size(), pkg.groupId(), pkg.artifactId());
 
         List<VersionHistoryTracker.VersionReportEntry> reportEntries = new ArrayList<>();
+        boolean firstVersion = true;
 
         for (VersionInfo ver : stableVersions) {
             try {
                 PackageInfo versionPkg = ver.toPackageInfo();
+
+                String reportKey = ver.groupId() + "_" + ver.artifactId() + "_" + ver.version();
+                Path existingReport = outputDir.resolve("reports").resolve(reportKey + "-report.json");
+                if (Files.exists(existingReport) && Files.size(existingReport) > 0) {
+                    reportEntries.add(new VersionHistoryTracker.VersionReportEntry(
+                            ver.version(), ver.timestamp(), existingReport));
+                    firstVersion = false;
+                    continue;
+                }
+
                 Path bytecodeJar = client.downloadBytecodeJarForVersion(ver, downloadDir);
                 if (bytecodeJar == null) {
                     appendSkippedVersion("skipped_version_download_failed.json", ver);
@@ -474,6 +485,12 @@ public class ScanOrchestrator {
                     result = analysisFuture.get(SCAN_TIMEOUT_MINUTES, TimeUnit.MINUTES);
                 } catch (TimeoutException e) {
                     analysisFuture.cancel(true);
+                    if (firstVersion) {
+                        log.warn("  First version {} timed out, skipping all versions of {}:{}.",
+                                ver.coordinate(), pkg.groupId(), pkg.artifactId());
+                        appendSkipped("skipped_version_history_timed_out.json", pkg);
+                        return;
+                    }
                     log.warn("  Version {} timed out after {} minutes, skipping.", ver.coordinate(), SCAN_TIMEOUT_MINUTES);
                     appendSkippedVersion("skipped_version_timed_out.json", ver);
                     continue;
@@ -481,8 +498,9 @@ public class ScanOrchestrator {
                     timeoutExecutor.shutdownNow();
                 }
 
+                firstVersion = false;
+
                 if (result.analyzerSucceeded()) {
-                    String reportKey = ver.groupId() + "_" + ver.artifactId() + "_" + ver.version();
                     Path reportFile = outputDir.resolve("reports").resolve(reportKey + "-report.json");
                     if (Files.exists(reportFile)) {
                         reportEntries.add(new VersionHistoryTracker.VersionReportEntry(
