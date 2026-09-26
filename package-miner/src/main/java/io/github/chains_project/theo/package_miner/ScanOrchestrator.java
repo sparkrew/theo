@@ -403,10 +403,11 @@ public class ScanOrchestrator {
 
     private void processVersionHistory(PackageInfo pkg, MavenCentralClient client,
                                         PackageAnalyzer analyzer, VersionHistoryTracker tracker) {
-        // TODO: remove this block once springframework processing is done
-        if (!pkg.groupId().startsWith("org.springframework")) {
-            return;
-        }
+        // TODO: remove this block once skipped-list processing is done
+        try {
+            Set<String> allowed = new HashSet<>(Files.readAllLines(Path.of("/Tmp/gamageyo/theo-all/theo/skipped_list.txt")));
+            if (!allowed.contains(pkg.groupId() + ":" + pkg.artifactId())) return;
+        } catch (IOException e) { return; }
 
         Path historyFile = outputDir.resolve("version-history")
                 .resolve(pkg.groupId() + "_" + pkg.artifactId() + "-history.json");
