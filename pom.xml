@@ -21,7 +21,6 @@
         <module>theo-commons</module>
         <module>preprocessor</module>
         <module>theo-agent</module>
-        <module>theo-test-exec</module>
         <module>package-miner</module>
         <module>package-static-analyzer</module>
     </modules>
