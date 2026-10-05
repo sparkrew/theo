@@ -46,6 +46,7 @@ public class SensitiveApiRegistry {
         return methodLookup.get(key);
     }
 
+    // We use the same method within theo-test-exec. Maybe we can move this to theo-commons.
     static String filterName(String name) {
         // Replace $ followed by digit (e.g., $Array1234) with nothing
         name = name.replaceAll("\\$\\d+", "");
