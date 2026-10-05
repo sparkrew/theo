@@ -1,29 +1,23 @@
 package io.github.chains_project.theo.theo_static.utils;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 public class SensitivePathResult {
     public final String entryPoint;
     public final String thirdPartyMethod;
     public final String securitySensitiveAPI;
     public final List<String> fullPath;
-    public final Map<String, Map<String, String>> dependencyPositionMap;
-    // depName -> method -> position (First, Internal, Last)
+    public final String dependencyName;
+    public final String dependencyDirectness;
 
     public SensitivePathResult(String entryPoint, String thirdPartyMethod, String sensitiveAPI, List<String> fullPath,
-                               Map<String, Map<String, String>> dependencyPositionMap) {
+                               String dependencyName, String dependencyDirectness) {
         this.entryPoint = entryPoint;
         this.thirdPartyMethod = thirdPartyMethod;
         this.securitySensitiveAPI = sensitiveAPI;
         this.fullPath = fullPath;
-        this.dependencyPositionMap = dependencyPositionMap;
-    }
-
-    // Existing constructor for backward compatibility (optional)
-    public SensitivePathResult(String entryPoint, String thirdPartyMethod, String sensitiveAPI, List<String> fullPath) {
-        this(entryPoint, thirdPartyMethod, sensitiveAPI, fullPath, new HashMap<>());
+        this.dependencyName = dependencyName;
+        this.dependencyDirectness = dependencyDirectness;
     }
 
     @Override
@@ -33,7 +27,8 @@ public class SensitivePathResult {
                 ", thirdPartyMethod='" + thirdPartyMethod + '\'' +
                 ", securitySensitiveAPI='" + securitySensitiveAPI + '\'' +
                 ", fullPath=" + fullPath +
-                ", dependencyPositionMap=" + dependencyPositionMap +
+                ", dependencyName='" + dependencyName + '\'' +
+                ", dependencyDirectness='" + dependencyDirectness + '\'' +
                 '}';
     }
 }

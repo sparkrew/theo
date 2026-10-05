@@ -101,11 +101,15 @@ public class MethodExtractor {
                     List<List<MethodSignature>> allPaths = findPaths(cg, entryPoint, sensitiveMethod);
                     for (List<MethodSignature> path : allPaths) {
                         MethodSignature firstThirdParty = null;
-                        for (MethodSignature method : path) {
-                            if (isThirdPartyMethod(method)) {
+                        int firstThirdPartyIndex = -1;
+                        for (int i = 0; i < path.size(); i++) {
+                            MethodSignature method = path.get(i);
+                            // The sensitive API is the path target, not the dependency method invoking it.
+                            if (!method.equals(sensitiveMethod) && isThirdPartyMethod(method)) {
                                 thirdPartyCalls.add(getFilteredMethodSignature(method));
                                 if (firstThirdParty == null) {
                                     firstThirdParty = method;
+                                    firstThirdPartyIndex = i;
                                 }
                             }
                         }
@@ -114,14 +118,20 @@ public class MethodExtractor {
                             List<String> pathStrings = path.stream()
                                     .map(MethodExtractor::getFilteredMethodSignature)
                                     .collect(Collectors.toList());
-                            Map<String, Map<String, String>> depPosMap = computeDependencyPositions(pathStrings,
-                                    packageMapPath);
+                            String thirdPartyMethodName = getFilteredMethodSignature(firstThirdParty);
+                            String dependencyName = PackageMatcher.getDependencyName(
+                                    extractPackageName(thirdPartyMethodName), packageMapPath);
+                            String directness = firstThirdPartyIndex + 1 < path.size()
+                                    && path.get(firstThirdPartyIndex + 1).equals(sensitiveMethod)
+                                    ? "Direct"
+                                    : "Indirect";
                             sensitivePathResults.add(new SensitivePathResult(
                                     entryPoint.toString(),
-                                    firstThirdParty.toString(),
+                                    thirdPartyMethodName,
                                     getFilteredMethodSignature(sensitiveMethod),
                                     pathStrings,
-                                    depPosMap
+                                    dependencyName,
+                                    directness
                             ));
 
                         }
@@ -132,59 +142,6 @@ public class MethodExtractor {
             log.error("Failed to initialize call graph.", e);
         }
         return new AnalysisResult(thirdPartyCalls, sensitivePathResults);
-    }
-
-    private static Map<String, Map<String, String>> computeDependencyPositions(List<String> path, Path packagePath) {
-        Map<String, Integer> positionToIndex = new LinkedHashMap<>();
-        for (int i = 0; i < path.size(); i++) {
-            String method = path.get(i);
-            String packageName = extractPackageName(method);
-            if (packageName != null) {
-                positionToIndex.put(packageName + "#" + i, i);
-            }
-        }
-        List<String> orderedPackageNames = positionToIndex.keySet().stream()
-                .map(s -> s.split("#")[0])
-                .distinct()
-                .toList();
-        // A TreeMap to make sure the keys are sorted. So there won't be diffs for the same input.
-        Map<String, Map<String, String>> dependencyMap = new TreeMap<>();
-        int firstDepIndex = -1;
-        int lastDepIndex = -1;
-        // Get the dependency position. Later we assign "First" for the first method that has a non-null dependency.
-        for (int i = 0; i < orderedPackageNames.size(); i++) {
-            String dep = PackageMatcher.getDependencyName(orderedPackageNames.get(i), packagePath);
-            if (dep != null) {
-                if (firstDepIndex == -1) {
-                    firstDepIndex = i;
-                }
-                lastDepIndex = i;
-            }
-        }
-        for (int i = 0; i < orderedPackageNames.size(); i++) {
-            String packageName = orderedPackageNames.get(i);
-            String dep = PackageMatcher.getDependencyName(packageName, packagePath);
-            if (dep == null) continue;
-            String position;
-            // If the same sensitive API is accessed multiple times, the position order will matter.
-            if (i == firstDepIndex) {
-                if (firstDepIndex == lastDepIndex)
-                    position = "First, Last";
-                else
-                    position = "First";
-            } else if (i == lastDepIndex) {
-                position = "Last";
-            } else {
-                position = "Internal";
-            }
-            for (String method : path) {
-                if (Objects.equals(extractPackageName(method), packageName)) {
-                    String filtered = filterName(method);
-                    dependencyMap.computeIfAbsent(dep, k -> new HashMap<>()).put(filtered, position);
-                }
-            }
-        }
-        return dependencyMap;
     }
 
     private static String extractPackageName(String method) {

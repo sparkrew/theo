@@ -24,20 +24,18 @@ public class OutputFormatter {
         // Using TreeMap so there won't be diffs for the same input
         Map<String, Map<String, Map<String, String>>> result = new TreeMap<>();
         for (SensitivePathResult pathResult : analysisResult.sensitivePaths) {
-            String sensitiveAPI = pathResult.securitySensitiveAPI;
-            Map<String, Map<String, String>> depPosMap = pathResult.dependencyPositionMap;
-            for (Map.Entry<String, Map<String, String>> depEntry : depPosMap.entrySet()) {
-                String dep = depEntry.getKey();
-                Map<String, String> methodPositionMap = depEntry.getValue();
-                for (Map.Entry<String, String> methodEntry : methodPositionMap.entrySet()) {
-                    String method = methodEntry.getKey();
-                    String position = methodEntry.getValue();
-                    result
-                            .computeIfAbsent(dep, k -> new TreeMap<>())
-                            .computeIfAbsent(sensitiveAPI, k -> new TreeMap<>())
-                            .put(method, position);
-                }
+            String dependency = pathResult.dependencyName;
+            if (dependency == null) {
+                continue;
             }
+            String sensitiveAPI = pathResult.securitySensitiveAPI;
+            result
+                    .computeIfAbsent(dependency, k -> new TreeMap<>())
+                    .computeIfAbsent(sensitiveAPI, k -> new TreeMap<>())
+                    .merge(pathResult.thirdPartyMethod, pathResult.dependencyDirectness,
+                        (existing, incoming) -> "Direct".equals(existing) || "Direct".equals(incoming)
+                            ? "Direct"
+                            : "Indirect");
         }
         ObjectMapper mapper = new ObjectMapper();
         try {
