@@ -18,7 +18,7 @@ cat > "$AOP_XML_PATH" <<EOF
         <aspect name="io.github.chains_project.theo.theo_agent.agent.SensitiveApiAspect"/>
     </aspects>
 
-    <weaver options="-Xlint:ignore">
+    <weaver options="-Xset:weaveJavaxPackages=true -Xlint:ignore">
 
         <include within="${PROJECT_PACKAGE_NAME}.*"/>
 EOF
