@@ -89,7 +89,8 @@ public class DependencyAnalyzer {
                     "-r", reportFile.toAbsolutePath().toString()
             );
 
-            log.info("Analyzing {} with command: {}", gav, String.join(" ", command));
+            log.info("Analyzing {}", gav);
+            log.debug("Running command: {}", String.join(" ", command));
 
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(false);
