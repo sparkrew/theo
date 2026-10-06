@@ -53,6 +53,23 @@ mvn theo-static:cve-check
 - **`analyze`** -- Analyzes all dependencies for sensitive API usage, determines client reachability, detects changes from the previous run, and generates HTML reports.
 - **`cve-check`** -- Queries OSV.dev for known vulnerabilities in the analyzed dependencies and augments reports with CVE badges.
 
+### Configuration
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `theo.packageNames` | (required) | Comma-separated package names of the client project |
+| `theo.skipSameGroupId` | `true` | Skip dependencies that share the client project's groupId |
+| `theo.verbose` | `true` | Show all changes in CLI output; when false, only reachable changes |
+| `theo.cacheDir` | `~/.theo/cache` | Persistent cache directory |
+| `theo.reportDir` | `target/theo-report` | Report output directory |
+| `theo.analyzerJarPath` | (auto-resolved) | Path to the package-static-analyzer JAR |
+
+To include same-groupId dependencies in the analysis:
+
+```
+mvn theo-static:analyze -Dtheo.packageNames=com.example.app -Dtheo.skipSameGroupId=false
+```
+
 ## Reports
 
 The `analyze` goal generates three HTML reports in `target/theo-report/`:
@@ -64,6 +81,8 @@ The `analyze` goal generates three HTML reports in `target/theo-report/`:
 ## Cache
 
 Analysis results are cached in `~/.theo/cache/` by default (configurable via `theo.cacheDir`). The cache survives `mvn clean` and avoids re-analyzing unchanged dependencies.
+
+The first run can take a few minutes to complete becuase it analyzes all the dependencies one by one, but the subsequent runs will be faster with caching. 
 
 ## Design
 

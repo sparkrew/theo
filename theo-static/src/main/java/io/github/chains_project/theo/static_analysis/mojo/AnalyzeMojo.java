@@ -77,6 +77,10 @@ public class AnalyzeMojo extends AbstractMojo {
     @Parameter(property = "theo.packageMapPath", defaultValue = "${project.build.directory}/theo-package-map.json")
     private File packageMapPath;
 
+    /** When true, dependencies sharing the client project's groupId are skipped during analysis. */
+    @Parameter(property = "theo.skipSameGroupId", defaultValue = "true")
+    private boolean skipSameGroupId;
+
     /** Local Maven repository path, used to resolve the analyzer jar when no explicit path is given. */
     @Parameter(defaultValue = "${settings.localRepository}", readonly = true)
     private String localRepository;
@@ -154,8 +158,10 @@ public class AnalyzeMojo extends AbstractMojo {
         // Build it inline since the preprocess goal hasn't run
         getLog().info("Package map not found, building it now...");
         PackageMapBuilder builder = new PackageMapBuilder();
+        String projectGid = project.getGroupId();
         List<PackageMapBuilder.ArtifactInfo> artifacts = project.getArtifacts().stream()
                 .filter(a -> a.getFile() != null && a.getFile().isFile())
+                .filter(a -> !skipSameGroupId || !a.getGroupId().equals(projectGid))
                 .map(a -> new PackageMapBuilder.ArtifactInfo(
                         a.getFile().toPath(), a.getGroupId(), a.getArtifactId(),
                         a.getType(), a.getClassifier(), a.getVersion()))
@@ -234,8 +240,17 @@ public class AnalyzeMojo extends AbstractMojo {
         }
 
         List<AnalysisOrchestrator.DependencyInfo> infos = new ArrayList<>();
+        String projectGroupId = project.getGroupId();
+
         for (Artifact artifact : project.getArtifacts()) {
             if (artifact.getFile() == null || !artifact.getFile().isFile()) {
+                continue;
+            }
+
+            // Sub-modules of the same project rarely need privilege analysis, and
+            // analyzing them slows down the build without adding much value.
+            if (skipSameGroupId && artifact.getGroupId().equals(projectGroupId)) {
+                getLog().debug("Skipping same-groupId dependency: " + artifact.getId());
                 continue;
             }
 
