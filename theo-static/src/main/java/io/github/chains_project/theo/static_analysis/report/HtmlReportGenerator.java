@@ -81,7 +81,6 @@ public class HtmlReportGenerator {
     private void generateAllDependenciesReport(AnalysisSummary summary, String template, Path reportDir) throws IOException {
         StringBuilder content = new StringBuilder();
 
-        // Stats line
         int totalDeps = summary.getDependencyReports().size();
         int withApis = (int) summary.getDependencyReports().stream()
             .filter(DependencyReport::hasSensitiveApis).count();
@@ -89,54 +88,46 @@ public class HtmlReportGenerator {
             .append(" dependencies analyzed, ").append(withApis)
             .append(" with sensitive API access</p>\n");
 
-        // Sort by dependency GAV for consistent output
         List<DependencyReport> sorted = new ArrayList<>(summary.getDependencyReports());
         sorted.sort(Comparator.comparing(DependencyReport::gav));
 
+        // This report only lists which sensitive APIs each dependency accesses.
+        // Full call paths and decompiled source are in reachable.html to keep
+        // this overview compact when the project has many dependencies.
         for (DependencyReport dep : sorted) {
             if (!dep.hasSensitiveApis()) continue;
 
             boolean isReachable = dep.getSensitiveApis().stream()
                 .anyMatch(api -> summary.isReachable(dep.gav(), api.sensitiveApi()));
 
-            // Dependency-level details element
             String reachableClass = isReachable ? " reachable" : "";
             content.append("<details class=\"dependency").append(reachableClass).append("\">\n");
             content.append("  <summary><span class=\"dep-gav\">").append(escapeHtml(dep.gav()))
                 .append("</span> <span class=\"count\">(").append(dep.sensitiveApiCount())
                 .append(" sensitive APIs)</span></summary>\n");
 
-            // Group by sensitive API
-            Map<String, List<SensitiveApiEntry>> byApi = groupBySensitiveApi(dep.getSensitiveApis());
-
-            for (Map.Entry<String, List<SensitiveApiEntry>> entry : byApi.entrySet()) {
-                String apiName = entry.getKey();
-                List<SensitiveApiEntry> entries = entry.getValue();
-
-                boolean apiReachable = entries.stream()
-                    .anyMatch(e -> summary.isReachable(dep.gav(), e.sensitiveApi()));
-                String apiClass = apiReachable ? " reachable" : "";
-
-                content.append("  <details class=\"sensitive-api").append(apiClass).append("\">\n");
-                content.append("    <summary>").append(escapeHtml(apiName));
-                if (!entries.isEmpty()) {
-                    content.append(" <span class=\"access-type\">").append(entries.get(0).accessType()).append("</span>");
-                }
-                content.append("</summary>\n");
-
-                // Show each path
-                for (SensitiveApiEntry apiEntry : entries) {
-                    buildPathDetails(content, dep, apiEntry);
-                }
-
-                content.append("  </details>\n");
+            // Deduplicate: just list unique sensitive API names with their access type
+            Map<String, String> uniqueApis = new TreeMap<>();
+            for (SensitiveApiEntry entry : dep.getSensitiveApis()) {
+                uniqueApis.putIfAbsent(entry.sensitiveApi(), entry.accessType());
             }
+
+            content.append("  <ul class=\"api-list\">\n");
+            for (Map.Entry<String, String> api : uniqueApis.entrySet()) {
+                boolean apiReachable = summary.isReachable(dep.gav(), api.getKey());
+                String apiClass = apiReachable ? " class=\"reachable\"" : "";
+                content.append("    <li").append(apiClass).append(">")
+                    .append(escapeHtml(api.getKey()))
+                    .append(" <span class=\"access-type\">").append(api.getValue()).append("</span>")
+                    .append("</li>\n");
+            }
+            content.append("  </ul>\n");
 
             content.append("</details>\n");
         }
 
         String html = renderTemplate(template, "Theo — all dependencies", content.toString(),
-            "Decompiled code is produced by CFR and may not exactly match the original source.");
+            "For full call paths and decompiled source, see reachable.html.");
         Files.writeString(reportDir.resolve("all-dependencies.html"), html, StandardCharsets.UTF_8);
     }
 

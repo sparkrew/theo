@@ -162,6 +162,7 @@ public class AnalyzeMojo extends AbstractMojo {
         List<PackageMapBuilder.ArtifactInfo> artifacts = project.getArtifacts().stream()
                 .filter(a -> a.getFile() != null && a.getFile().isFile())
                 .filter(a -> !skipSameGroupId || !a.getGroupId().equals(projectGid))
+                .filter(a -> !a.getGroupId().startsWith("org.apache.maven"))
                 .map(a -> new PackageMapBuilder.ArtifactInfo(
                         a.getFile().toPath(), a.getGroupId(), a.getArtifactId(),
                         a.getType(), a.getClassifier(), a.getVersion()))
@@ -251,6 +252,12 @@ public class AnalyzeMojo extends AbstractMojo {
             // analyzing them slows down the build without adding much value.
             if (skipSameGroupId && artifact.getGroupId().equals(projectGroupId)) {
                 getLog().debug("Skipping same-groupId dependency: " + artifact.getId());
+                continue;
+            }
+
+            // Maven's own libraries are build infrastructure, not application dependencies.
+            if (artifact.getGroupId().startsWith("org.apache.maven")) {
+                getLog().debug("Skipping Maven infrastructure dependency: " + artifact.getId());
                 continue;
             }
 
