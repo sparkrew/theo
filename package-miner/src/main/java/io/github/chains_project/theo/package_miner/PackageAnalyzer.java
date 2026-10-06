@@ -200,7 +200,7 @@ public class PackageAnalyzer {
      * To make this work for a standalone package from Maven Central, we:
      * 1. Download the package's POM file
      * 2. Create a temporary Maven project directory with that POM
-     * 3. Run "mvn io.github.chains-project:theo-preprocessor-maven-plugin:preprocess"
+     * 3. Run "mvn io.github.sparkrew:theo-preprocessor-maven-plugin:preprocess"
      *    in that directory, which triggers Maven's dependency resolution and produces the map
      * 4. Return the path to the generated package-map.json
      */
@@ -242,7 +242,7 @@ public class PackageAnalyzer {
             log.info("Running preprocessor for {} to generate package map...", pkgKey);
             ProcessBuilder pb = new ProcessBuilder(
                     "mvn",
-                    "io.github.chains-project:theo-preprocessor-maven-plugin:1.0-SNAPSHOT:preprocess",
+                    "io.github.sparkrew:theo-preprocessor-maven-plugin:1.0-SNAPSHOT:preprocess",
                     "-DoutputFile=" + packageMapFile.toAbsolutePath()
             );
             pb.directory(tempProjectDir.toFile());

@@ -27,7 +27,7 @@ Add the plugin to the target project's `pom.xml`:
 <build>
   <plugins>
     <plugin>
-      <groupId>io.github.chains-project</groupId>
+      <groupId>io.github.sparkrew</groupId>
       <artifactId>theo-static-maven-plugin</artifactId>
       <version>1.0-SNAPSHOT</version>
     </plugin>
@@ -71,5 +71,5 @@ For design decisions and architecture details, see [Design.md](Design.md).
 
 <!-- references -->
 
-[ci-shield]: https://github.com/chains-project/theo/actions/workflows/test.yml/badge.svg?branch=main
-[ci-link]: https://github.com/chains-project/theo/actions
+[ci-shield]: https://github.com/sparkrew/theo/actions/workflows/test.yml/badge.svg?branch=main
+[ci-link]: https://github.com/sparkrew/theo/actions

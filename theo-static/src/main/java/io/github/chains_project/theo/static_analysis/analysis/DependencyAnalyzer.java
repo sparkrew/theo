@@ -244,7 +244,7 @@ public class DependencyAnalyzer {
      */
     public static Path resolveAnalyzerJar(Path localRepoPath) throws IOException {
         Path artifactDir = localRepoPath.resolve(
-                "io/github/chains-project/package-static-analyzer/1.0-SNAPSHOT");
+                "io/github/sparkrew/package-static-analyzer/1.0-SNAPSHOT");
 
         if (!Files.isDirectory(artifactDir)) {
             throw new IOException("Analyzer artifact directory not found: " + artifactDir);
