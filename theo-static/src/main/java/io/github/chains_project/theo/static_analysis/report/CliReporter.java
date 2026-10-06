@@ -167,7 +167,7 @@ public class CliReporter {
             }
 
             String cveList = cves.stream()
-                    .map(c -> c.id() + " (" + c.severity() + ")")
+                    .map(c -> c.severity().isEmpty() ? c.id() : c.id() + " (" + c.severity() + ")")
                     .reduce((a, b) -> a + ", " + b)
                     .orElse("");
 

@@ -164,7 +164,7 @@ public class OsvClient {
     private List<CveResult> parseVulns(JsonNode vulnsArray) {
         List<CveResult> results = new ArrayList<>();
         for (JsonNode vuln : vulnsArray) {
-            String id = vuln.path("id").asText("UNKNOWN");
+            String id = vuln.path("id").asText("");
             String summary = vuln.path("summary").asText("No description available");
             String severity = extractSeverity(vuln);
             String link = "https://osv.dev/vulnerability/" + id;
@@ -179,7 +179,7 @@ public class OsvClient {
      *
      * 1. database_specific.severity — some advisories (notably GitHub) put it here directly
      * 2. severity array with CVSS_V3 scoring — we map the numeric score to a label
-     * 3. Fall back to "UNKNOWN" if neither is available
+     * 3. Skip if neither is available
      */
     private String extractSeverity(JsonNode vulnNode) {
         // Try the database-specific severity field first (common in GitHub advisories)
@@ -205,7 +205,7 @@ public class OsvClient {
             }
         }
 
-        return "UNKNOWN";
+        return "";
     }
 
     /**
@@ -228,7 +228,7 @@ public class OsvClient {
             return Double.parseDouble(vectorOrScore);
         } catch (NumberFormatException ignored) {
             // Not a plain number — could be a CVSS vector string, which we can't
-            // easily score without a full parser. Fall back to -1 so we get "UNKNOWN".
+            // easily score without a full parser. Fall back to -1.
         }
 
         return -1.0;
@@ -242,7 +242,7 @@ public class OsvClient {
         if (score >= 7.0) return "HIGH";
         if (score >= 4.0) return "MEDIUM";
         if (score >= 0.1) return "LOW";
-        return "UNKNOWN";
+        return "";
     }
 
     /**

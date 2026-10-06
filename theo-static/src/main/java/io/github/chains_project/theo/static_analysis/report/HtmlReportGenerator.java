@@ -100,26 +100,28 @@ public class HtmlReportGenerator {
             boolean isReachable = dep.getSensitiveApis().stream()
                 .anyMatch(api -> summary.isReachable(dep.gav(), api.sensitiveApi()));
 
-            String reachableClass = isReachable ? " reachable" : "";
-            content.append("<details class=\"dependency").append(reachableClass).append("\">\n");
-            content.append("  <summary><span class=\"dep-gav\">").append(escapeHtml(dep.gav()))
-                .append("</span> <span class=\"count\">(").append(dep.sensitiveApiCount())
-                .append(" sensitive APIs)</span></summary>\n");
-
             // Deduplicate: just list unique sensitive API names with their access type
             Map<String, String> uniqueApis = new TreeMap<>();
             for (SensitiveApiEntry entry : dep.getSensitiveApis()) {
                 uniqueApis.putIfAbsent(entry.sensitiveApi(), entry.accessType());
             }
 
+            String reachableClass = isReachable ? " reachable" : "";
+            content.append("<details class=\"dependency").append(reachableClass).append("\">\n");
+            content.append("  <summary><span class=\"dep-gav\">").append(escapeHtml(dep.gav()))
+                .append("</span> <span class=\"count\">(").append(uniqueApis.size())
+                .append(" sensitive APIs)</span></summary>\n");
+
             content.append("  <ul class=\"api-list\">\n");
             for (Map.Entry<String, String> api : uniqueApis.entrySet()) {
                 boolean apiReachable = summary.isReachable(dep.gav(), api.getKey());
                 String apiClass = apiReachable ? " class=\"reachable\"" : "";
                 content.append("    <li").append(apiClass).append(">")
-                    .append(escapeHtml(api.getKey()))
-                    .append(" <span class=\"access-type\">").append(api.getValue()).append("</span>")
-                    .append("</li>\n");
+                    .append(escapeHtml(api.getKey()));
+                if (!api.getValue().isEmpty()) {
+                    content.append(" <span class=\"access-type\">").append(api.getValue()).append("</span>");
+                }
+                content.append("</li>\n");
             }
             content.append("  </ul>\n");
 
@@ -166,7 +168,7 @@ public class HtmlReportGenerator {
             for (Map.Entry<String, List<SensitiveApiEntry>> entry : byApi.entrySet()) {
                 content.append("  <details class=\"sensitive-api reachable\">\n");
                 content.append("    <summary>").append(escapeHtml(entry.getKey()));
-                if (!entry.getValue().isEmpty()) {
+                if (!entry.getValue().isEmpty() && !entry.getValue().get(0).accessType().isEmpty()) {
                     content.append(" <span class=\"access-type\">").append(entry.getValue().get(0).accessType()).append("</span>");
                 }
                 content.append("</summary>\n");

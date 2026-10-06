@@ -153,10 +153,11 @@ public class DependencyAnalyzer {
             int entryPointCount = metadata.path("entryPointCount").asInt(0);
             long timestamp = metadata.path("timestamp").asLong(System.currentTimeMillis());
 
-            // Collect entries from both direct and indirect accesses.
+            // The report splits entries by access type into separate arrays
+            // rather than putting the type on each entry, so we pass it in.
             List<SensitiveApiEntry> entries = new ArrayList<>();
-            collectEntries(root.path("directAccesses"), entries);
-            collectEntries(root.path("indirectAccesses"), entries);
+            collectEntries(root.path("directAccesses"), "DIRECT", entries);
+            collectEntries(root.path("indirectAccesses"), "INDIRECT", entries);
 
             return new DependencyReport(groupId, artifactId, version, type,
                     entries, entryPointCount, timestamp);
@@ -171,7 +172,7 @@ public class DependencyAnalyzer {
      * Iterates over a JSON array of access entries and converts each to a
      * {@link SensitiveApiEntry}.
      */
-    private void collectEntries(JsonNode arrayNode, List<SensitiveApiEntry> target) {
+    private void collectEntries(JsonNode arrayNode, String accessType, List<SensitiveApiEntry> target) {
         if (arrayNode == null || arrayNode.isMissingNode() || !arrayNode.isArray()) {
             return;
         }
@@ -179,7 +180,6 @@ public class DependencyAnalyzer {
         for (JsonNode node : arrayNode) {
             String sensitiveApi = node.path("sensitiveAPI").asText("");
             String entryPoint = node.path("entryPoint").asText("");
-            String accessType = node.path("accessType").asText("UNKNOWN");
 
             List<String> dependencies = jsonArrayToList(node.path("dependencies"));
             List<String> fullPath = jsonArrayToList(node.path("fullPath"));

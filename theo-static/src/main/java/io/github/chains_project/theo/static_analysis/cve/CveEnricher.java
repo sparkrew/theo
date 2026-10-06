@@ -77,12 +77,15 @@ public class CveEnricher {
                 // Build the badge HTML: one badge per CVE, styled by severity
                 StringBuilder badges = new StringBuilder();
                 for (CveResult cve : cves) {
+                    String severityClass = cve.severity().isEmpty() ? "" : cve.severity().toLowerCase();
+                    String label = cve.severity().isEmpty()
+                        ? escapeHtml(cve.id())
+                        : escapeHtml(cve.id()) + " (" + cve.severity() + ")";
                     badges.append(String.format(
-                        " <span class=\"cve-badge %s\"><a href=\"%s\" target=\"_blank\">%s (%s)</a></span>",
-                        cve.severity().toLowerCase(),
+                        " <span class=\"cve-badge %s\"><a href=\"%s\" target=\"_blank\">%s</a></span>",
+                        severityClass,
                         escapeHtml(cve.link()),
-                        escapeHtml(cve.id()),
-                        cve.severity()
+                        label
                     ));
                 }
 
