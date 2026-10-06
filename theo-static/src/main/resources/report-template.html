@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{TITLE}}</title>
+    <style>
+        :root {
+            --accent: hsl(195, 100%, 60%);
+            --success: hsl(126, 100%, 41%);
+            --bg: #ffffff;
+            --fg: #000000;
+            --highlight: hsl(60, 100%, 95%);
+            --cve-badge-bg: hsl(0, 80%, 55%);
+            --border: #e0e0e0;
+            --code-bg: #f5f5f5;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            font-size: 13px;
+            line-height: 1.4;
+            color: var(--fg);
+            background: var(--bg);
+            padding: 8px 12px;
+        }
+        h1 { font-size: 16px; font-weight: 600; margin-bottom: 2px; }
+        h2 { font-size: 14px; font-weight: 600; margin: 10px 0 4px; border-bottom: 1px solid var(--border); padding-bottom: 2px; }
+        h3 { font-size: 13px; font-weight: 600; margin: 4px 0 2px; }
+        .meta { font-size: 11px; color: #666; margin-bottom: 8px; }
+        .stats { font-size: 12px; margin-bottom: 6px; color: #333; }
+        .content { margin-bottom: 8px; }
+
+        /* dependency blocks */
+        .dependency { border: 1px solid var(--border); margin-bottom: 2px; }
+        .dependency > summary {
+            padding: 3px 6px;
+            cursor: pointer;
+            list-style: none;
+            font-size: 13px;
+            background: #fafafa;
+        }
+        .dependency > summary::before { content: "\25b6"; font-size: 9px; margin-right: 5px; color: #999; }
+        .dependency[open] > summary::before { content: "\25bc"; }
+        .dependency.reachable > summary { background: var(--highlight); }
+
+        /* change markers */
+        .change-marker { font-weight: bold; margin-right: 2px; }
+        .dependency.added > summary .change-marker { color: var(--success); }
+        .dependency.modified > summary .change-marker { color: var(--accent); }
+        .dependency.removed > summary .change-marker { color: var(--cve-badge-bg); }
+
+        .dep-gav { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
+        .count { color: #888; font-size: 11px; }
+        .access-type { font-size: 10px; color: #888; margin-left: 4px; }
+
+        /* sensitive API entries */
+        .sensitive-api { margin-left: 12px; border-left: 2px solid var(--border); margin-bottom: 1px; }
+        .sensitive-api > summary {
+            padding: 2px 6px;
+            cursor: pointer;
+            list-style: none;
+            font-size: 12px;
+        }
+        .sensitive-api > summary::before { content: "\25b6"; font-size: 8px; margin-right: 4px; color: #bbb; }
+        .sensitive-api[open] > summary::before { content: "\25bc"; }
+        .sensitive-api.reachable > summary { background: var(--highlight); }
+
+        /* call paths */
+        .call-path { margin-left: 16px; margin-bottom: 1px; }
+        .call-path > summary {
+            padding: 1px 4px;
+            cursor: pointer;
+            list-style: none;
+            font-size: 11px;
+            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+            color: #444;
+        }
+        .call-path > summary::before { content: "\25b6"; font-size: 7px; margin-right: 3px; color: #ccc; }
+        .call-path[open] > summary::before { content: "\25bc"; }
+        .path-list {
+            margin: 2px 0 2px 24px;
+            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+            font-size: 11px;
+            color: #333;
+        }
+        .path-list li { margin-bottom: 0; }
+
+        /* decompiled source */
+        .decompiled { margin-left: 20px; margin-top: 2px; margin-bottom: 2px; }
+        .decompiled > summary {
+            padding: 1px 4px;
+            cursor: pointer;
+            list-style: none;
+            font-size: 11px;
+            color: #666;
+        }
+        .decompiled > summary::before { content: "\25b6"; font-size: 7px; margin-right: 3px; color: #ccc; }
+        .decompiled[open] > summary::before { content: "\25bc"; }
+        pre {
+            background: var(--code-bg);
+            border: 1px solid var(--border);
+            padding: 4px 6px;
+            overflow-x: auto;
+            font-size: 11px;
+            line-height: 1.3;
+        }
+        code {
+            font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+        }
+
+        /* CVE badges (injected by CveEnricher) */
+        .cve-badge {
+            display: inline-block;
+            background: var(--cve-badge-bg);
+            color: #fff;
+            font-size: 10px;
+            font-weight: 600;
+            padding: 0 4px;
+            margin-left: 4px;
+            vertical-align: middle;
+        }
+
+        /* api entries in the changes report */
+        .api-entry { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; padding: 1px 6px 1px 18px; }
+        .api-entry.added { color: #1a7f37; }
+        .api-entry.removed { color: #cf222e; }
+        .no-changes { color: #666; font-style: italic; font-size: 12px; margin: 4px 0; }
+
+        footer { margin-top: 10px; font-size: 10px; color: #999; border-top: 1px solid var(--border); padding-top: 4px; }
+    </style>
+</head>
+<body>
+    <h1>{{TITLE}}</h1>
+    <p class="meta">Generated: {{GENERATED_AT}}</p>
+    <div class="content">
+        {{CONTENT}}
+    </div>
+    <footer>{{FOOTER_NOTE}}</footer>
+</body>
+</html>

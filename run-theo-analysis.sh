@@ -11,8 +11,8 @@ ORIGINAL_DIR=$(pwd)
 cd "$PROJECT_SOURCE_CODE_PATH" || { echo "Error: Failed to cd into $PROJECT_SOURCE_CODE_PATH"; exit 1; }
 
 # Run Theo Preprocessor
-mvn io.github.chains-project:theo-preprocessor-maven-plugin:1.0-SNAPSHOT:preprocess \
-    -DoutputFile="$PACKAGE_MAP_OUTPUT_PATH"
+mvn io.github.chains-project:theo-static-maven-plugin:1.0-SNAPSHOT:preprocess \
+    -Dtheo.outputFile="$PACKAGE_MAP_OUTPUT_PATH"
 
 # This is the other script to generate the AOP XML. We have to go back to the original directory to run that.
 cd "$ORIGINAL_DIR"

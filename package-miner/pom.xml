@@ -19,7 +19,7 @@
         </dependency>
         <dependency>
             <groupId>io.github.chains-project</groupId>
-            <artifactId>theo-static</artifactId>
+            <artifactId>theo-static-maven-plugin</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
