@@ -52,11 +52,14 @@ public class MethodDecompiler {
      */
     public String decompileClass(Path jarPath, String fullyQualifiedClassName) {
         try {
-            String classPath = fullyQualifiedClassName.replace('.', '/');
+            // CFR targets a specific class inside a JAR with the "jar!path" syntax.
+            // Without this, it tries to decompile every class in the JAR and the
+            // jarfilter option (which filters JAR names, not class names) won't help.
+            String classFilePath = fullyQualifiedClassName.replace('.', '/') + ".class";
+            String target = jarPath.toAbsolutePath() + "!" + classFilePath;
 
             Map<String, String> options = new HashMap<>();
-            // Tell CFR which class we want out of the JAR
-            options.put("jarfilter", classPath);
+            options.put("silent", "true");
 
             StringBuilder output = new StringBuilder();
             OutputSinkFactory sinkFactory = new OutputSinkFactory() {
@@ -80,17 +83,17 @@ public class MethodDecompiler {
                     .withOutputSink(sinkFactory)
                     .build();
 
-            driver.analyse(List.of(jarPath.toString()));
+            driver.analyse(List.of(target));
 
             String result = output.toString().trim();
             if (result.isEmpty()) {
-                log.warn("CFR produced empty output for class {} in {}", fullyQualifiedClassName, jarPath);
+                log.debug("CFR produced empty output for class {} in {}", fullyQualifiedClassName, jarPath);
                 return DECOMPILATION_UNAVAILABLE;
             }
             return result;
 
         } catch (Exception e) {
-            log.warn("Failed to decompile class {} from {}: {}", fullyQualifiedClassName, jarPath, e.getMessage());
+            log.debug("Failed to decompile class {} from {}: {}", fullyQualifiedClassName, jarPath, e.getMessage());
             return DECOMPILATION_UNAVAILABLE;
         }
     }
