@@ -36,6 +36,6 @@ public class CveCheckMojo extends AnalyzeMojo {
                 summary.getDependencyReports(), reportDir.toPath());
 
         CliReporter cli = new CliReporter(getLog());
-        cli.printCveSummary(cveResults);
+        cli.printCveSummary(cveResults, summary);
     }
 }

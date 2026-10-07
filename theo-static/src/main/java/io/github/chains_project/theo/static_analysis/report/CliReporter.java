@@ -7,8 +7,10 @@ import io.github.chains_project.theo.static_analysis.model.DependencyReport;
 import org.apache.maven.plugin.logging.Log;
 
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Formats analysis results for the Maven CLI output. Keeps the output concise --
@@ -145,33 +147,52 @@ public class CliReporter {
     }
 
     /**
-     * Prints CVE information to the CLI. Each affected dependency gets a line
-     * listing its vulnerabilities with severity.
+     * Prints CVE information to the CLI, but only for dependencies that have
+     * at least one sensitive API reachable from the client project.
      */
-    public void printCveSummary(Map<String, List<CveResult>> cveResults) {
+    public void printCveSummary(Map<String, List<CveResult>> cveResults, AnalysisSummary summary) {
         if (cveResults == null || cveResults.isEmpty()) {
             log.info("No known vulnerabilities found in any dependency.");
             return;
         }
 
-        long totalVulns = cveResults.values().stream().mapToLong(List::size).sum();
-        long affectedDeps = cveResults.values().stream().filter(l -> !l.isEmpty()).count();
+        // Only report CVEs for dependencies the client actually reaches
+        Set<String> reachableGavs = new HashSet<>();
+        for (DependencyReport dep : summary.getDependencyReports()) {
+            boolean hasReachableApi = dep.getSensitiveApis().stream()
+                    .anyMatch(api -> summary.isReachable(dep.gav(), api.sensitiveApi()));
+            if (hasReachableApi) {
+                reachableGavs.add(dep.gav());
+            }
+        }
 
-        log.info("");
-        log.info("Found " + totalVulns + " vulnerabilities across " + affectedDeps + " dependencies:");
+        long reachableVulns = 0;
+        long reachableAffected = 0;
+        StringBuilder lines = new StringBuilder();
 
         for (Map.Entry<String, List<CveResult>> entry : cveResults.entrySet()) {
             List<CveResult> cves = entry.getValue();
-            if (cves.isEmpty()) {
+            if (cves.isEmpty() || !reachableGavs.contains(entry.getKey())) {
                 continue;
             }
+
+            reachableVulns += cves.size();
+            reachableAffected++;
 
             String cveList = cves.stream()
                     .map(c -> c.severity().isEmpty() ? c.id() : c.id() + " (" + c.severity() + ")")
                     .reduce((a, b) -> a + ", " + b)
                     .orElse("");
 
-            log.info("  " + entry.getKey() + " — " + cveList);
+            lines.append("  ").append(entry.getKey()).append(" — ").append(cveList).append("\n");
+        }
+
+        log.info("");
+        if (reachableVulns == 0) {
+            log.info("No known vulnerabilities found in reachable dependencies.");
+        } else {
+            log.info("Found " + reachableVulns + " vulnerabilities across " + reachableAffected + " reachable dependencies:");
+            log.info(lines.toString().stripTrailing());
         }
     }
 }
