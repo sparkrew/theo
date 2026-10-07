@@ -78,6 +78,9 @@ public class HtmlReportGenerator {
 
     // --- all-dependencies.html ---
 
+    /** The fixed order in which categories appear in reports. */
+    private static final List<String> CATEGORY_ORDER = List.of("FILESYSTEM", "NETWORK", "PROCESS", "OTHER");
+
     private void generateAllDependenciesReport(AnalysisSummary summary, String template, Path reportDir) throws IOException {
         StringBuilder content = new StringBuilder();
 
@@ -88,44 +91,90 @@ public class HtmlReportGenerator {
             .append(" dependencies analyzed, ").append(withApis)
             .append(" with sensitive API access</p>\n");
 
-        List<DependencyReport> sorted = new ArrayList<>(summary.getDependencyReports());
-        sorted.sort(Comparator.comparing(DependencyReport::gav));
+        // Build grouped structure: category -> depGav -> apiName -> accessType
+        // A dependency can appear under multiple categories if its APIs span them.
+        Map<String, Map<String, Map<String, String>>> byCategoryThenDep = new LinkedHashMap<>();
+        for (String cat : CATEGORY_ORDER) {
+            byCategoryThenDep.put(cat, new TreeMap<>());
+        }
+
+        for (DependencyReport dep : summary.getDependencyReports()) {
+            if (!dep.hasSensitiveApis()) continue;
+            for (SensitiveApiEntry entry : dep.getSensitiveApis()) {
+                String cat = (entry.category() == null || entry.category().isBlank()) ? "OTHER" : entry.category();
+                byCategoryThenDep.computeIfAbsent(cat, k -> new TreeMap<>())
+                    .computeIfAbsent(dep.gav(), k -> new TreeMap<>())
+                    .putIfAbsent(entry.sensitiveApi(), entry.accessType());
+            }
+        }
 
         // This report only lists which sensitive APIs each dependency accesses.
         // Full call paths and decompiled source are in reachable.html to keep
         // this overview compact when the project has many dependencies.
-        for (DependencyReport dep : sorted) {
-            if (!dep.hasSensitiveApis()) continue;
+        for (String category : CATEGORY_ORDER) {
+            Map<String, Map<String, String>> depsInCategory = byCategoryThenDep.get(category);
+            if (depsInCategory == null || depsInCategory.isEmpty()) continue;
 
-            boolean isReachable = dep.getSensitiveApis().stream()
-                .anyMatch(api -> summary.isReachable(dep.gav(), api.sensitiveApi()));
+            content.append("<h2 class=\"category-header\">").append(escapeHtml(category)).append("</h2>\n");
 
-            // Deduplicate: just list unique sensitive API names with their access type
-            Map<String, String> uniqueApis = new TreeMap<>();
-            for (SensitiveApiEntry entry : dep.getSensitiveApis()) {
-                uniqueApis.putIfAbsent(entry.sensitiveApi(), entry.accessType());
-            }
+            for (Map.Entry<String, Map<String, String>> depEntry : depsInCategory.entrySet()) {
+                String gav = depEntry.getKey();
+                Map<String, String> uniqueApis = depEntry.getValue();
 
-            String reachableClass = isReachable ? " reachable" : "";
-            content.append("<details class=\"dependency").append(reachableClass).append("\">\n");
-            content.append("  <summary><span class=\"dep-gav\">").append(escapeHtml(dep.gav()))
-                .append("</span> <span class=\"count\">(").append(uniqueApis.size())
-                .append(" sensitive APIs)</span></summary>\n");
+                boolean isReachable = uniqueApis.keySet().stream()
+                    .anyMatch(api -> summary.isReachable(gav, api));
 
-            content.append("  <ul class=\"api-list\">\n");
-            for (Map.Entry<String, String> api : uniqueApis.entrySet()) {
-                boolean apiReachable = summary.isReachable(dep.gav(), api.getKey());
-                String apiClass = apiReachable ? " class=\"reachable\"" : "";
-                content.append("    <li").append(apiClass).append(">")
-                    .append(escapeHtml(api.getKey()));
-                if (!api.getValue().isEmpty()) {
-                    content.append(" <span class=\"access-type\">").append(api.getValue()).append("</span>");
+                String reachableClass = isReachable ? " reachable" : "";
+                content.append("<details class=\"dependency").append(reachableClass).append("\">\n");
+                content.append("  <summary><span class=\"dep-gav\">").append(escapeHtml(gav))
+                    .append("</span> <span class=\"count\">(").append(uniqueApis.size())
+                    .append(" sensitive APIs)</span></summary>\n");
+
+                content.append("  <ul class=\"api-list\">\n");
+                for (Map.Entry<String, String> api : uniqueApis.entrySet()) {
+                    boolean apiReachable = summary.isReachable(gav, api.getKey());
+                    String apiClass = apiReachable ? " class=\"reachable\"" : "";
+                    content.append("    <li").append(apiClass).append(">")
+                        .append(escapeHtml(api.getKey()));
+                    if (!api.getValue().isEmpty()) {
+                        content.append(" <span class=\"access-type\">").append(api.getValue()).append("</span>");
+                    }
+                    content.append("</li>\n");
                 }
-                content.append("</li>\n");
-            }
-            content.append("  </ul>\n");
+                content.append("  </ul>\n");
 
-            content.append("</details>\n");
+                content.append("</details>\n");
+            }
+        }
+
+        // Render any categories not in the standard order (shouldn't happen, but safe)
+        for (Map.Entry<String, Map<String, Map<String, String>>> extra : byCategoryThenDep.entrySet()) {
+            if (CATEGORY_ORDER.contains(extra.getKey()) || extra.getValue().isEmpty()) continue;
+            content.append("<h2 class=\"category-header\">").append(escapeHtml(extra.getKey())).append("</h2>\n");
+            for (Map.Entry<String, Map<String, String>> depEntry : extra.getValue().entrySet()) {
+                String gav = depEntry.getKey();
+                Map<String, String> uniqueApis = depEntry.getValue();
+                boolean isReachable = uniqueApis.keySet().stream()
+                    .anyMatch(api -> summary.isReachable(gav, api));
+                String reachableClass = isReachable ? " reachable" : "";
+                content.append("<details class=\"dependency").append(reachableClass).append("\">\n");
+                content.append("  <summary><span class=\"dep-gav\">").append(escapeHtml(gav))
+                    .append("</span> <span class=\"count\">(").append(uniqueApis.size())
+                    .append(" sensitive APIs)</span></summary>\n");
+                content.append("  <ul class=\"api-list\">\n");
+                for (Map.Entry<String, String> api : uniqueApis.entrySet()) {
+                    boolean apiReachable = summary.isReachable(gav, api.getKey());
+                    String apiClass = apiReachable ? " class=\"reachable\"" : "";
+                    content.append("    <li").append(apiClass).append(">")
+                        .append(escapeHtml(api.getKey()));
+                    if (!api.getValue().isEmpty()) {
+                        content.append(" <span class=\"access-type\">").append(api.getValue()).append("</span>");
+                    }
+                    content.append("</li>\n");
+                }
+                content.append("  </ul>\n");
+                content.append("</details>\n");
+            }
         }
 
         String html = renderTemplate(template, "Theo — all dependencies", content.toString(),
@@ -139,48 +188,96 @@ public class HtmlReportGenerator {
         StringBuilder content = new StringBuilder();
 
         // Filter to only deps with reachable APIs
-        List<DependencyReport> sorted = summary.getDependencyReports().stream()
+        List<DependencyReport> reachableDeps = summary.getDependencyReports().stream()
             .filter(dep -> dep.getSensitiveApis().stream()
                 .anyMatch(api -> summary.isReachable(dep.gav(), api.sensitiveApi())))
             .sorted(Comparator.comparing(DependencyReport::gav))
             .toList();
 
-        long reachableCount = sorted.stream()
-            .flatMap(d -> d.getSensitiveApis().stream())
-            .filter(api -> sorted.stream().anyMatch(d -> summary.isReachable(d.gav(), api.sensitiveApi())))
-            .count();
-
-        content.append("<p class=\"stats\">").append(sorted.size())
+        content.append("<p class=\"stats\">").append(reachableDeps.size())
             .append(" dependencies with client-reachable sensitive APIs</p>\n");
 
-        for (DependencyReport dep : sorted) {
-            content.append("<details class=\"dependency reachable\">\n");
-            content.append("  <summary><span class=\"dep-gav\">").append(escapeHtml(dep.gav()))
-                .append("</span></summary>\n");
+        // Group reachable entries: category -> dep -> list of reachable API entries
+        Map<String, Map<String, List<SensitiveApiEntry>>> byCategoryThenDep = new LinkedHashMap<>();
+        for (String cat : CATEGORY_ORDER) {
+            byCategoryThenDep.put(cat, new TreeMap<>());
+        }
 
-            // Only show reachable APIs
-            Map<String, List<SensitiveApiEntry>> byApi = groupBySensitiveApi(
-                dep.getSensitiveApis().stream()
-                    .filter(api -> summary.isReachable(dep.gav(), api.sensitiveApi()))
-                    .toList()
-            );
-
-            for (Map.Entry<String, List<SensitiveApiEntry>> entry : byApi.entrySet()) {
-                content.append("  <details class=\"sensitive-api reachable\">\n");
-                content.append("    <summary>").append(escapeHtml(entry.getKey()));
-                if (!entry.getValue().isEmpty() && !entry.getValue().get(0).accessType().isEmpty()) {
-                    content.append(" <span class=\"access-type\">").append(entry.getValue().get(0).accessType()).append("</span>");
-                }
-                content.append("</summary>\n");
-
-                for (SensitiveApiEntry apiEntry : entry.getValue()) {
-                    buildPathDetails(content, dep, apiEntry);
-                }
-
-                content.append("  </details>\n");
+        for (DependencyReport dep : reachableDeps) {
+            for (SensitiveApiEntry entry : dep.getSensitiveApis()) {
+                if (!summary.isReachable(dep.gav(), entry.sensitiveApi())) continue;
+                String cat = (entry.category() == null || entry.category().isBlank()) ? "OTHER" : entry.category();
+                byCategoryThenDep.computeIfAbsent(cat, k -> new TreeMap<>())
+                    .computeIfAbsent(dep.gav(), k -> new ArrayList<>())
+                    .add(entry);
             }
+        }
 
-            content.append("</details>\n");
+        for (String category : CATEGORY_ORDER) {
+            Map<String, List<SensitiveApiEntry>> depsInCategory = byCategoryThenDep.get(category);
+            if (depsInCategory == null || depsInCategory.isEmpty()) continue;
+
+            content.append("<h2 class=\"category-header\">").append(escapeHtml(category)).append("</h2>\n");
+
+            for (Map.Entry<String, List<SensitiveApiEntry>> depEntry : depsInCategory.entrySet()) {
+                String gav = depEntry.getKey();
+                DependencyReport dep = reachableDeps.stream()
+                    .filter(d -> d.gav().equals(gav)).findFirst().orElse(null);
+                if (dep == null) continue;
+
+                content.append("<details class=\"dependency reachable\">\n");
+                content.append("  <summary><span class=\"dep-gav\">").append(escapeHtml(gav))
+                    .append("</span></summary>\n");
+
+                // Group this dep's entries by sensitive API name
+                Map<String, List<SensitiveApiEntry>> byApi = groupBySensitiveApi(depEntry.getValue());
+
+                for (Map.Entry<String, List<SensitiveApiEntry>> apiGroup : byApi.entrySet()) {
+                    content.append("  <details class=\"sensitive-api reachable\">\n");
+                    content.append("    <summary>").append(escapeHtml(apiGroup.getKey()));
+                    if (!apiGroup.getValue().isEmpty() && !apiGroup.getValue().get(0).accessType().isEmpty()) {
+                        content.append(" <span class=\"access-type\">").append(apiGroup.getValue().get(0).accessType()).append("</span>");
+                    }
+                    content.append("</summary>\n");
+
+                    for (SensitiveApiEntry apiEntry : apiGroup.getValue()) {
+                        buildPathDetails(content, dep, apiEntry);
+                    }
+
+                    content.append("  </details>\n");
+                }
+
+                content.append("</details>\n");
+            }
+        }
+
+        // Handle any unexpected categories not in the standard order
+        for (Map.Entry<String, Map<String, List<SensitiveApiEntry>>> extra : byCategoryThenDep.entrySet()) {
+            if (CATEGORY_ORDER.contains(extra.getKey()) || extra.getValue().isEmpty()) continue;
+            content.append("<h2 class=\"category-header\">").append(escapeHtml(extra.getKey())).append("</h2>\n");
+            for (Map.Entry<String, List<SensitiveApiEntry>> depEntry : extra.getValue().entrySet()) {
+                String gav = depEntry.getKey();
+                DependencyReport dep = reachableDeps.stream()
+                    .filter(d -> d.gav().equals(gav)).findFirst().orElse(null);
+                if (dep == null) continue;
+                content.append("<details class=\"dependency reachable\">\n");
+                content.append("  <summary><span class=\"dep-gav\">").append(escapeHtml(gav))
+                    .append("</span></summary>\n");
+                Map<String, List<SensitiveApiEntry>> byApi = groupBySensitiveApi(depEntry.getValue());
+                for (Map.Entry<String, List<SensitiveApiEntry>> apiGroup : byApi.entrySet()) {
+                    content.append("  <details class=\"sensitive-api reachable\">\n");
+                    content.append("    <summary>").append(escapeHtml(apiGroup.getKey()));
+                    if (!apiGroup.getValue().isEmpty() && !apiGroup.getValue().get(0).accessType().isEmpty()) {
+                        content.append(" <span class=\"access-type\">").append(apiGroup.getValue().get(0).accessType()).append("</span>");
+                    }
+                    content.append("</summary>\n");
+                    for (SensitiveApiEntry apiEntry : apiGroup.getValue()) {
+                        buildPathDetails(content, dep, apiEntry);
+                    }
+                    content.append("  </details>\n");
+                }
+                content.append("</details>\n");
+            }
         }
 
         String html = renderTemplate(template, "Theo — client-reachable APIs", content.toString(),

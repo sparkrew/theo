@@ -168,9 +168,27 @@ public class OsvClient {
             String summary = vuln.path("summary").asText("No description available");
             String severity = extractSeverity(vuln);
             String link = "https://osv.dev/vulnerability/" + id;
-            results.add(new CveResult(id, summary, severity, link));
+            List<String> cweIds = extractCweIds(vuln);
+            Set<String> categories = CweCategoryMapper.categorizeByCwes(
+                CweCategoryMapper.parseCweIds(cweIds));
+            results.add(new CveResult(id, summary, severity, link, cweIds, categories));
         }
         return results;
+    }
+
+    /**
+     * Extracts CWE IDs from the advisory. GitHub advisories store them
+     * in database_specific.cwe_ids as an array of strings like "CWE-22".
+     */
+    private List<String> extractCweIds(JsonNode vulnNode) {
+        List<String> cweIds = new ArrayList<>();
+        JsonNode cweArray = vulnNode.path("database_specific").path("cwe_ids");
+        if (cweArray.isArray()) {
+            for (JsonNode cwe : cweArray) {
+                cweIds.add(cwe.asText());
+            }
+        }
+        return cweIds;
     }
 
     /**

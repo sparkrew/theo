@@ -55,9 +55,9 @@ public class CveEnricher {
     }
 
     /**
-     * Injects CVE badge HTML into an existing report file. Looks for
-     * dependency GAV strings in summary elements and adds badge spans
-     * right after them.
+     * Injects CVE badge HTML into an existing report file. Places badges next
+     * to dependency GAV strings (existing behavior) and also under each
+     * category header with relevant CVEs for that category.
      */
     private void augmentHtmlFile(Path htmlFile, Map<String, List<CveResult>> cveResults) {
         if (!Files.exists(htmlFile)) {
@@ -67,6 +67,7 @@ public class CveEnricher {
         try {
             String content = Files.readString(htmlFile, StandardCharsets.UTF_8);
 
+            // Step 1: inject badges next to dependency GAV names (existing behavior)
             for (Map.Entry<String, List<CveResult>> entry : cveResults.entrySet()) {
                 String gav = entry.getKey();
                 List<CveResult> cves = entry.getValue();
@@ -94,6 +95,37 @@ public class CveEnricher {
                 String gavMarker = "<span class=\"dep-gav\">" + escapeHtml(gav) + "</span>";
                 String gavWithBadges = gavMarker + badges.toString();
                 content = content.replace(gavMarker, gavWithBadges);
+            }
+
+            // Step 2: inject CVE summary blocks under each category header.
+            // Category headers are: <h2 class="category-header">FILESYSTEM</h2>
+            for (String category : List.of("FILESYSTEM", "NETWORK", "PROCESS", "OTHER")) {
+                String headerTag = "<h2 class=\"category-header\">" + escapeHtml(category) + "</h2>";
+                if (!content.contains(headerTag)) continue;
+
+                // Collect all CVEs that belong to this category
+                StringBuilder categoryBadges = new StringBuilder();
+                for (List<CveResult> cves : cveResults.values()) {
+                    for (CveResult cve : cves) {
+                        if (cve.categories() != null && cve.categories().contains(category)) {
+                            String severityClass = cve.severity().isEmpty() ? "" : cve.severity().toLowerCase();
+                            String label = cve.severity().isEmpty()
+                                ? escapeHtml(cve.id())
+                                : escapeHtml(cve.id()) + " (" + cve.severity() + ")";
+                            categoryBadges.append(String.format(
+                                " <span class=\"cve-badge %s\"><a href=\"%s\" target=\"_blank\">%s</a></span>",
+                                severityClass,
+                                escapeHtml(cve.link()),
+                                label
+                            ));
+                        }
+                    }
+                }
+
+                if (categoryBadges.length() > 0) {
+                    String badgeBlock = "\n<div class=\"category-cves\">" + categoryBadges + "</div>";
+                    content = content.replace(headerTag, headerTag + badgeBlock);
+                }
             }
 
             Files.writeString(htmlFile, content, StandardCharsets.UTF_8);
