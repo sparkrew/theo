@@ -35,8 +35,8 @@ public class DependencyAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(DependencyAnalyzer.class);
     private static final ObjectMapper mapper = new ObjectMapper();
 
-    // Default timeout per dependency analysis (5 minutes).
-    private static final long DEFAULT_TIMEOUT_MINUTES = 5;
+    // Default timeout per dependency analysis (15 minutes).
+    private static final long DEFAULT_TIMEOUT_MINUTES = 15;
 
     private final Path analyzerJarPath;
     private final Path packageMapPath;
@@ -117,20 +117,37 @@ public class DependencyAnalyzer {
             pb.redirectErrorStream(false);
             Process process = pb.start();
 
-            // Capture stdout and stderr in parallel to avoid buffer deadlocks.
-            String stdout = drainStream(process.getInputStream());
-            String stderr = drainStream(process.getErrorStream());
+            // Drain stdout and stderr in background threads so they don't block
+            // the waitFor timeout. Without this, drainStream blocks until the
+            // process exits, making the timeout on waitFor unreachable.
+            StringBuilder stdoutBuf = new StringBuilder();
+            StringBuilder stderrBuf = new StringBuilder();
+            Thread stdoutThread = new Thread(() -> {
+                try { stdoutBuf.append(drainStream(process.getInputStream())); } catch (IOException ignored) {}
+            });
+            Thread stderrThread = new Thread(() -> {
+                try { stderrBuf.append(drainStream(process.getErrorStream())); } catch (IOException ignored) {}
+            });
+            stdoutThread.setDaemon(true);
+            stderrThread.setDaemon(true);
+            stdoutThread.start();
+            stderrThread.start();
 
             boolean finished = process.waitFor(timeoutMinutes, TimeUnit.MINUTES);
             if (!finished) {
                 process.destroyForcibly();
+                stdoutThread.interrupt();
+                stderrThread.interrupt();
                 log.warn("Analyzer timed out after {} minutes for {}", timeoutMinutes, gav);
                 return emptyReport(groupId, artifactId, version, type);
             }
 
+            stdoutThread.join(5000);
+            stderrThread.join(5000);
+
             int exitCode = process.exitValue();
             if (exitCode != 0) {
-                log.warn("Analyzer exited with code {} for {}. stderr: {}", exitCode, gav, stderr);
+                log.warn("Analyzer exited with code {} for {}. stderr: {}", exitCode, gav, stderrBuf);
                 return emptyReport(groupId, artifactId, version, type);
             }
 
