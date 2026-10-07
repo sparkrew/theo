@@ -81,6 +81,10 @@ public class AnalyzeMojo extends AbstractMojo {
     @Parameter(property = "theo.skipSameGroupId", defaultValue = "true")
     private boolean skipSameGroupId;
 
+    /** When true, only direct dependencies are analyzed. When false (default), all transitive dependencies are included. */
+    @Parameter(property = "theo.directOnly", defaultValue = "false")
+    private boolean directOnly;
+
     /** Local Maven repository path, used to resolve the analyzer jar when no explicit path is given. */
     @Parameter(defaultValue = "${settings.localRepository}", readonly = true)
     private String localRepository;
@@ -240,7 +244,12 @@ public class AnalyzeMojo extends AbstractMojo {
         List<AnalysisOrchestrator.DependencyInfo> infos = new ArrayList<>();
         String projectGroupId = project.getGroupId();
 
-        for (Artifact artifact : project.getArtifacts()) {
+        Set<Artifact> artifacts = directOnly ? project.getDependencyArtifacts() : project.getArtifacts();
+        if (directOnly) {
+            getLog().info("Analyzing direct dependencies only (" + artifacts.size() + " artifacts)");
+        }
+
+        for (Artifact artifact : artifacts) {
             if (artifact.getFile() == null || !artifact.getFile().isFile()) {
                 continue;
             }

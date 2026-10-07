@@ -59,6 +59,7 @@ mvn theo-static:cve-check -Dtheo.packageNames=com.example.app
 |----------|---------|-------------|
 | `theo.packageNames` | (required) | Comma-separated package names of the client project |
 | `theo.skipSameGroupId` | `true` | Skip dependencies that share the client project's groupId |
+| `theo.directOnly` | `false` | When true, only analyze direct dependencies (skip transitive) |
 | `theo.verbose` | `true` | Show all changes in CLI output; when false, only reachable changes |
 | `theo.cacheDir` | `~/.theo/cache` | Persistent cache directory |
 | `theo.reportDir` | `target/theo-report` | Report output directory |

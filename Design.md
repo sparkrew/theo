@@ -20,6 +20,8 @@ Output: `target/theo-package-map.json`
 
 For each dependency JAR, `DependencyAnalyzer` launches `package-static-analyzer` as a subprocess. The analyzer builds a call graph with SootUp, walks it from the dependency's entry points, and records every path that reaches a sensitive API. The result is a JSON report listing each sensitive API call, the access type (direct or indirect), the entry-point method, and the full call path.
 
+By default, all dependencies (direct and transitive) are analyzed. The `theo.directOnly` flag restricts analysis to direct dependencies only, which can be useful for large dependency trees where transitive analysis is too slow or noisy.
+
 Results are cached by GAV coordinates. Unchanged dependencies are skipped on subsequent runs. SNAPSHOT dependencies are always re-analyzed because their contents are mutable.
 
 ### 3. Client reachability analysis

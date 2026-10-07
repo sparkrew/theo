@@ -78,7 +78,7 @@ public class AnalysisOrchestrator {
                 log.debug("Cache hit but load failed for {} -- will re-analyze", key);
             }
 
-            log.info("Analyzing dependency {}", key);
+            log.debug("Analyzing dependency {}", key);
             DependencyReport report = dependencyAnalyzer.analyze(
                     dep.groupId(), dep.artifactId(), dep.version(), dep.type(),
                     dep.jarPath(), dep.packageNames()
