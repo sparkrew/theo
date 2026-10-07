@@ -1,7 +1,10 @@
 package io.github.chains_project.theo.static_analysis.analysis;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.chains_project.theo.theo_commons.APILoader;
+import io.github.chains_project.theo.theo_commons.SensitiveAPIDescriptor;
 import io.github.chains_project.theo.static_analysis.model.DependencyReport;
 import io.github.chains_project.theo.static_analysis.model.SensitiveApiEntry;
 import org.slf4j.Logger;
@@ -15,7 +18,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -38,6 +43,10 @@ public class DependencyAnalyzer {
     private final Path depsDir;
     private final long timeoutMinutes;
 
+    // Maps "className.method" to its category and subcategory from sensitive_apis.json.
+    // The package-static-analyzer output doesn't include these, so we look them up here.
+    private final Map<String, String[]> apiCategoryLookup;
+
     /**
      * @param analyzerJarPath path to the package-static-analyzer jar-with-dependencies
      * @param packageMapPath  path to the theo-package-map.json file
@@ -52,6 +61,18 @@ public class DependencyAnalyzer {
         this.packageMapPath = packageMapPath;
         this.depsDir = depsDir;
         this.timeoutMinutes = timeoutMinutes;
+        this.apiCategoryLookup = buildCategoryLookup();
+    }
+
+    private static Map<String, String[]> buildCategoryLookup() {
+        List<SensitiveAPIDescriptor> apis = APILoader.loadFromClasspath(
+                "sensitive_apis.json", new TypeReference<>() {});
+        Map<String, String[]> lookup = new HashMap<>();
+        for (SensitiveAPIDescriptor api : apis) {
+            lookup.put(api.className() + "." + api.method(),
+                    new String[]{api.category(), api.subcategory()});
+        }
+        return lookup;
     }
 
     /**
@@ -184,9 +205,11 @@ public class DependencyAnalyzer {
             List<String> dependencies = jsonArrayToList(node.path("dependencies"));
             List<String> fullPath = jsonArrayToList(node.path("fullPath"));
 
-            // Category and subcategory may not be present in every report.
-            String category = node.has("category") ? node.get("category").asText(null) : null;
-            String subcategory = node.has("subcategory") ? node.get("subcategory").asText(null) : null;
+            // The package-static-analyzer doesn't include category info in its output,
+            // so we look it up from the sensitive API definitions.
+            String[] catInfo = apiCategoryLookup.get(sensitiveApi);
+            String category = catInfo != null ? catInfo[0] : null;
+            String subcategory = catInfo != null ? catInfo[1] : null;
 
             target.add(new SensitiveApiEntry(
                     sensitiveApi, entryPoint, accessType, dependencies, fullPath,
