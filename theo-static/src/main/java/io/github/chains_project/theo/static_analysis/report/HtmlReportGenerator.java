@@ -38,8 +38,7 @@ public class HtmlReportGenerator {
     }
 
     /**
-     * Generates all three HTML reports and writes an analysis-data.json file
-     * for the CVE check goal to consume later.
+     * Generates all three HTML reports.
      */
     public void generateReports(AnalysisSummary summary, ChangeSet changeSet, Path reportDir) throws IOException {
         Files.createDirectories(reportDir);
@@ -54,9 +53,6 @@ public class HtmlReportGenerator {
 
         // 3. changes.html — what changed since last run
         generateChangesReport(summary, changeSet, template, reportDir);
-
-        // 4. analysis-data.json — machine-readable output for cve-check
-        writeAnalysisData(summary, reportDir);
 
         log.info("Reports written to {}", reportDir);
     }
@@ -91,8 +87,8 @@ public class HtmlReportGenerator {
             .append(" dependencies analyzed, ").append(withApis)
             .append(" with sensitive API access</p>\n");
 
-        // Build grouped structure: category -> subcategory -> depGav -> set of api names
-        Map<String, Map<String, Map<String, Set<String>>>> grouped = new LinkedHashMap<>();
+        // category -> subcategory -> depGav -> (apiName -> accessType)
+        Map<String, Map<String, Map<String, Map<String, String>>>> grouped = new LinkedHashMap<>();
         for (String cat : CATEGORY_ORDER) {
             grouped.put(cat, new TreeMap<>());
         }
@@ -104,25 +100,25 @@ public class HtmlReportGenerator {
                 String sub = (entry.subcategory() == null || entry.subcategory().isBlank()) ? "General" : entry.subcategory();
                 grouped.computeIfAbsent(cat, k -> new TreeMap<>())
                     .computeIfAbsent(sub, k -> new TreeMap<>())
-                    .computeIfAbsent(dep.gav(), k -> new TreeSet<>())
-                    .add(entry.sensitiveApi());
+                    .computeIfAbsent(dep.gav(), k -> new TreeMap<>())
+                    .putIfAbsent(entry.sensitiveApi(), entry.accessType());
             }
         }
 
         for (String category : CATEGORY_ORDER) {
-            Map<String, Map<String, Set<String>>> subcategories = grouped.get(category);
+            Map<String, Map<String, Map<String, String>>> subcategories = grouped.get(category);
             if (subcategories == null || subcategories.isEmpty()) continue;
 
             content.append("<h2 class=\"category-header\">").append(escapeHtml(category)).append("</h2>\n");
 
-            for (Map.Entry<String, Map<String, Set<String>>> subEntry : subcategories.entrySet()) {
+            for (Map.Entry<String, Map<String, Map<String, String>>> subEntry : subcategories.entrySet()) {
                 content.append("<h3 class=\"subcategory-header\">").append(escapeHtml(subEntry.getKey())).append("</h3>\n");
 
-                for (Map.Entry<String, Set<String>> depEntry : subEntry.getValue().entrySet()) {
+                for (Map.Entry<String, Map<String, String>> depEntry : subEntry.getValue().entrySet()) {
                     String gav = depEntry.getKey();
-                    Set<String> apis = depEntry.getValue();
+                    Map<String, String> apis = depEntry.getValue();
 
-                    boolean isReachable = apis.stream().anyMatch(api -> summary.isReachable(gav, api));
+                    boolean isReachable = apis.keySet().stream().anyMatch(api -> summary.isReachable(gav, api));
                     String reachableClass = isReachable ? " reachable" : "";
 
                     content.append("<details class=\"dependency").append(reachableClass).append("\">\n");
@@ -131,11 +127,15 @@ public class HtmlReportGenerator {
                         .append(" sensitive APIs)</span></summary>\n");
 
                     content.append("  <ul class=\"api-list\">\n");
-                    for (String api : apis) {
-                        boolean apiReachable = summary.isReachable(gav, api);
+                    for (Map.Entry<String, String> api : apis.entrySet()) {
+                        boolean apiReachable = summary.isReachable(gav, api.getKey());
                         String apiClass = apiReachable ? " class=\"reachable\"" : "";
                         content.append("    <li").append(apiClass).append(">")
-                            .append(escapeHtml(api)).append("</li>\n");
+                            .append(escapeHtml(api.getKey()));
+                        if (api.getValue() != null && !api.getValue().isEmpty()) {
+                            content.append(" <span class=\"access-type\">").append(api.getValue()).append("</span>");
+                        }
+                        content.append("</li>\n");
                     }
                     content.append("  </ul>\n");
                     content.append("</details>\n");
@@ -391,15 +391,6 @@ public class HtmlReportGenerator {
             grouped.computeIfAbsent(entry.sensitiveApi(), k -> new ArrayList<>()).add(entry);
         }
         return grouped;
-    }
-
-    /**
-     * Writes the analysis summary as JSON for the CVE check goal to consume.
-     */
-    private void writeAnalysisData(AnalysisSummary summary, Path reportDir) throws IOException {
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        mapper.writerWithDefaultPrettyPrinter()
-            .writeValue(reportDir.resolve("analysis-data.json").toFile(), summary);
     }
 
     private static String escapeHtml(String text) {

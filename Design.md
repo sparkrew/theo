@@ -28,7 +28,7 @@ Results are cached by GAV coordinates. Unchanged dependencies are skipped on sub
 
 ### 4. Merge, change detection, and report generation
 
-The orchestrator merges per-dependency reports into an `AnalysisSummary`, compares it against the cached last-run summary via `ChangeDetector`, and passes both to `HtmlReportGenerator`. Three HTML reports and an `analysis-data.json` file are written to `target/theo-report/`.
+The orchestrator merges per-dependency reports into an `AnalysisSummary`, compares it against the cached last-run summary via `ChangeDetector`, and passes both to `HtmlReportGenerator`. Three HTML reports are written to `target/theo-report/`, with sensitive APIs grouped by category and subcategory.
 
 ## Key design decisions
 
@@ -59,7 +59,15 @@ Reports include decompiled source code snippets for the methods that reach sensi
 
 ### OSV.dev for CVE checking
 
-The `cve-check` goal queries the OSV.dev API to find known vulnerabilities in analyzed dependencies. OSV.dev was chosen because it is free, requires no API key, and aggregates data from NVD, GitHub Security Advisories, and other sources. It provides dependency-level vulnerability information (which versions of a library are affected), not method-level information -- Theo cannot currently tell you whether the vulnerable code path in a dependency is the same one that reaches a sensitive API.
+The `cve-check` goal runs the full analysis and then queries the OSV.dev API for known vulnerabilities. OSV.dev was chosen because it is free, requires no API key, and aggregates data from NVD, GitHub Security Advisories, and other sources. It provides dependency-level vulnerability information (which versions of a library are affected), not method-level information.
+
+### CWE-based CVE categorization
+
+CVEs are placed under the same categories as sensitive APIs using CWE IDs. Each CVE/advisory includes CWE tags (e.g. CWE-22 for path traversal), and the mapping from CWE to Theo's categories comes directly from Table II of the [paper](https://arxiv.org/abs/2408.02846). This is deterministic and auditable — a CVE tagged CWE-78 goes under PROCESS/OPERATING_SYSTEM, CWE-918 under NETWORK/CONNECTION, etc. CVEs with CWEs not in the table, or with no CWE tags, are placed under OTHER.
+
+### Unaudited capability badges
+
+When a reachable sensitive API's category has no known CVE for that dependency, the reachable report shows an "unaudited capability" badge with the most representative CWE for that subcategory. This flags gaps in CVE coverage — not vulnerabilities, but capabilities that haven't been audited. The badge tooltip explains what it means (e.g. "This dependency has operating system capability with no known CVE in this category. Historically associated with CWE-78.").
 
 ### `<details>`/`<summary>` for HTML reports
 
@@ -94,7 +102,8 @@ The HTML reports use an intentional minimal palette:
 - **Cyan accent** (`#00bcd4`) -- headings and structural elements
 - **Green** -- success indicators, no-change status
 - **Light yellow** -- highlighting for client-reachable entries
-- **Red** -- CVE badges and vulnerability indicators
+- **Gray border** -- CVE badges (subtle, with links to advisories)
+- **Dotted gray border** -- unaudited capability badges (with CWE label and tooltip)
 
 ## Cache structure
 
@@ -106,12 +115,12 @@ The HTML reports use an intentional minimal palette:
         {version}/
           report.json          # per-dependency analysis results
   projects/
-    {groupId}__{artifactId}__{version}/
+    {groupId}__{artifactId}/
       last-run.json            # full AnalysisSummary from last run
 ```
 
 - `report.json` contains the `DependencyReport` for a single dependency: its GAV, the list of sensitive API entries (each with access type, entry point, and full call path), and whether it has any sensitive APIs.
-- `last-run.json` contains the complete `AnalysisSummary` from the most recent analysis of a project, used by `ChangeDetector` to produce the changes report.
+- `last-run.json` contains the complete `AnalysisSummary` from the most recent analysis of a project, used by `ChangeDetector` to produce the changes report. The project version is excluded from the cache path so that version bumps still compare against the previous run.
 
 ## Extending
 

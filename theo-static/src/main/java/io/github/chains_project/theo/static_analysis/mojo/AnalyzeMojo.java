@@ -59,7 +59,7 @@ public class AnalyzeMojo extends AbstractMojo {
 
     /** Directory for the HTML reports. */
     @Parameter(property = "theo.reportDir", defaultValue = "${project.build.directory}/theo-report")
-    private File reportDir;
+    protected File reportDir;
 
     /** Persistent cache directory. */
     @Parameter(property = "theo.cacheDir", defaultValue = "${user.home}/.theo/cache")
@@ -87,32 +87,30 @@ public class AnalyzeMojo extends AbstractMojo {
 
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
+        runAnalysis();
+    }
+
+    /**
+     * Runs the full analysis pipeline and returns the summary. Subclasses
+     * (like CveCheckMojo) call this and then layer on additional logic.
+     */
+    protected AnalysisSummary runAnalysis() throws MojoExecutionException {
         try {
-            // Step 1: Ensure package map exists. If not, build it inline.
             Path mapPath = ensurePackageMap();
-
-            // Step 2: Prepare the deps directory with all resolved JAR files.
-            // SootUp needs all dependency JARs on the classpath for accurate call graphs.
             Path depsDir = prepareDepsDirectory();
-
-            // Step 3: Resolve the package-static-analyzer JAR
             Path analyzerJar = resolveAnalyzerJar();
 
-            // Step 4: Build the list of dependencies to analyze
             Map<String, Set<String>> packageMap = loadPackageMap(mapPath);
             List<AnalysisOrchestrator.DependencyInfo> depInfos = buildDependencyInfos(packageMap);
 
-            // Step 5: Set up collaborators
             CacheManager cache = new CacheManager(cacheDir.toPath());
             DependencyAnalyzer depAnalyzer = new DependencyAnalyzer(analyzerJar, mapPath, depsDir);
             ClientReachabilityAnalyzer reachAnalyzer = new ClientReachabilityAnalyzer();
             AnalysisOrchestrator orchestrator = new AnalysisOrchestrator(depAnalyzer, reachAnalyzer, cache);
 
-            // Step 6: Find the client project JAR
             String projectJarPath = findProjectJar();
             List<String> pkgNames = parsePackageNames(packageNames);
 
-            // Step 7: Run the analysis
             AnalysisSummary previousRun = orchestrator.loadPreviousRun(
                     project.getGroupId(), project.getArtifactId());
 
@@ -120,11 +118,9 @@ public class AnalyzeMojo extends AbstractMojo {
                     project.getGroupId(), project.getArtifactId(), project.getVersion(),
                     projectJarPath, pkgNames, mapPath, depInfos);
 
-            // Step 8: Detect changes between the previous run and this one
             ChangeDetector changeDetector = new ChangeDetector();
             ChangeSet changeSet = changeDetector.detectChanges(previousRun, summary);
 
-            // Step 9: Generate HTML reports with decompiled source snippets
             Map<String, Path> jarPaths = depInfos.stream()
                     .collect(Collectors.toMap(
                             d -> d.groupId() + ":" + d.artifactId() + ":" + d.version(),
@@ -135,9 +131,10 @@ public class AnalyzeMojo extends AbstractMojo {
             HtmlReportGenerator reportGen = new HtmlReportGenerator(decompiler, jarPaths);
             reportGen.generateReports(summary, changeSet, reportDir.toPath());
 
-            // Step 10: Print CLI summary
             CliReporter cli = new CliReporter(getLog());
             cli.printSummary(summary, changeSet, reportDir.toPath(), verbose);
+
+            return summary;
 
         } catch (IOException e) {
             throw new MojoExecutionException("Analysis failed: " + e.getMessage(), e);

@@ -41,17 +41,17 @@ Run the analysis:
 mvn theo-static:analyze -Dtheo.packageNames=com.example.app
 ```
 
-Check dependencies for known CVEs (run after `analyze`):
+Run the analysis with CVE checking:
 
 ```
-mvn theo-static:cve-check
+mvn theo-static:cve-check -Dtheo.packageNames=com.example.app
 ```
 
 ### Goals
 
 - **`preprocess`** -- Builds a package-to-dependency map from Maven's resolved dependencies.
 - **`analyze`** -- Analyzes all dependencies for sensitive API usage, determines client reachability, detects changes from the previous run, and generates HTML reports.
-- **`cve-check`** -- Queries OSV.dev for known vulnerabilities in the analyzed dependencies and augments reports with CVE badges.
+- **`cve-check`** -- Runs the full analysis (everything `analyze` does) and then queries OSV.dev for known vulnerabilities, augmenting reports with CVE badges and unaudited capability indicators.
 
 ### Configuration
 
@@ -72,11 +72,13 @@ mvn theo-static:analyze -Dtheo.packageNames=com.example.app -Dtheo.skipSameGroup
 
 ## Reports
 
-The `analyze` goal generates three HTML reports in `target/theo-report/`:
+The `analyze` goal generates three HTML reports in `target/theo-report/`. Sensitive APIs are grouped by category (Filesystem, Network, Process) and subcategory, based on the categorization from [Table II of the paper](https://arxiv.org/abs/2408.02846).
 
-- `all-dependencies.html` -- Every sensitive API call from every dependency.
-- `reachable.html` -- Only sensitive APIs reachable from the client project's code.
-- `changes.html` -- What changed since the last run (added, modified, removed dependencies and their sensitive API usage).
+- `all-dependencies.html` -- Every sensitive API from every dependency, grouped by category, with access type (direct/indirect) and client-reachable highlighting.
+- `reachable.html` -- Only sensitive APIs reachable from the client project's code, with full call paths and decompiled source.
+- `changes.html` -- What changed since the last run (added, modified, removed dependencies and their sensitive API changes).
+
+When running `cve-check`, the reports are augmented with CVE badges (linked to advisories) placed under the relevant category using CWE-based mapping. APIs reachable from the client with no known CVE in their category get an "unaudited capability" badge indicating the associated CWE.
 
 ## Cache
 

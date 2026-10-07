@@ -27,8 +27,8 @@ class HtmlReportGeneratorTest {
             "reachable.html should be created");
         assertTrue(Files.exists(reportDir.resolve("changes.html")),
             "changes.html should be created");
-        assertTrue(Files.exists(reportDir.resolve("analysis-data.json")),
-            "analysis-data.json should be created");
+        assertFalse(Files.exists(reportDir.resolve("analysis-data.json")),
+            "analysis-data.json should not be created (CVE check reads from summary directly)");
     }
 
     @Test
