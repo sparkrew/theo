@@ -1,6 +1,7 @@
 package io.github.chains_project.theo.static_analysis.cve;
 
 import io.github.chains_project.theo.static_analysis.model.DependencyReport;
+import io.github.chains_project.theo.static_analysis.model.SensitiveApiEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,6 +51,11 @@ public class CveEnricher {
         augmentHtmlFile(reportDir.resolve("all-dependencies.html"), cveResults);
         augmentHtmlFile(reportDir.resolve("reachable.html"), cveResults);
         augmentHtmlFile(reportDir.resolve("changes.html"), cveResults);
+
+        // Add unaudited capability badges to the reachable report only.
+        // These flag sensitive API categories where the dependency has no
+        // known CVE — a gap worth noting for reachable code paths.
+        addUnauditedBadges(reportDir.resolve("reachable.html"), reports, cveResults);
 
         return cveResults;
     }
@@ -133,6 +139,62 @@ public class CveEnricher {
 
         } catch (IOException e) {
             log.warn("Could not augment {} with CVE data: {}", htmlFile.getFileName(), e.getMessage());
+        }
+    }
+
+    /**
+     * Adds "unaudited capability" badges to sensitive API entries in the reachable
+     * report where the dependency has no CVE covering that API's category. This
+     * highlights gaps in CVE coverage for code paths that are actually reachable
+     * from the client project.
+     */
+    private void addUnauditedBadges(Path htmlFile, List<DependencyReport> reports,
+                                     Map<String, List<CveResult>> cveResults) {
+        if (!Files.exists(htmlFile)) return;
+
+        try {
+            String content = Files.readString(htmlFile, StandardCharsets.UTF_8);
+
+            for (DependencyReport dep : reports) {
+                List<CveResult> depCves = cveResults.getOrDefault(dep.gav(), List.of());
+
+                // Collect the categories already covered by known CVEs for this dependency
+                Set<String> coveredCategories = new HashSet<>();
+                for (CveResult cve : depCves) {
+                    if (cve.categories() != null) {
+                        coveredCategories.addAll(cve.categories());
+                    }
+                }
+
+                // For each sensitive API this dependency uses, check if its category is uncovered
+                for (SensitiveApiEntry entry : dep.getSensitiveApis()) {
+                    String category = entry.category();
+                    String subcategory = entry.subcategory();
+                    if (category == null || category.isBlank()) continue;
+                    if (coveredCategories.contains(category)) continue;
+
+                    // This API's category has no CVE coverage — add an unaudited badge
+                    List<Integer> cwes = CweCategoryMapper.cwesForSubcategory(subcategory);
+                    if (cwes.isEmpty()) continue;
+
+                    String cweLabel = "CWE-" + cwes.get(0);
+                    String tooltip = CweCategoryMapper.capabilityDescription(category, subcategory);
+
+                    String badge = " <span class=\"unaudited-badge\" title=\""
+                        + escapeHtml(tooltip) + "\">" + cweLabel + "</span>";
+
+                    // Find this API in the HTML and append the badge after it.
+                    // The API appears as: <summary>api.name
+                    String apiMarker = "<summary>" + escapeHtml(entry.sensitiveApi());
+                    if (content.contains(apiMarker) && !content.contains(apiMarker + badge)) {
+                        content = content.replace(apiMarker, apiMarker + badge);
+                    }
+                }
+            }
+
+            Files.writeString(htmlFile, content, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            log.warn("Could not add unaudited badges to {}: {}", htmlFile.getFileName(), e.getMessage());
         }
     }
 

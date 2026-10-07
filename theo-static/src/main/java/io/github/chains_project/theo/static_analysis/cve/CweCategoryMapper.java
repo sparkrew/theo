@@ -112,4 +112,45 @@ public class CweCategoryMapper {
     public static List<String> allCategories() {
         return List.of("FILESYSTEM", "NETWORK", "PROCESS", "OTHER");
     }
+
+    // Subcategory to its most representative CWE IDs (the primary ones from the paper).
+    // Used for unaudited capability badges — we show the most relevant CWE for the subcategory.
+    private static final Map<String, List<Integer>> SUBCATEGORY_CWES = Map.ofEntries(
+        Map.entry("INPUT",             List.of(73, 552)),
+        Map.entry("OUTPUT",            List.of(73, 552)),
+        Map.entry("MODIFICATION",      List.of(73, 552)),
+        Map.entry("MISCELLANEOUS",     List.of(22, 732)),
+        Map.entry("READ_ENV",          List.of(214, 526)),
+        Map.entry("READ_NETWORK_ENV",  List.of(214, 526)),
+        Map.entry("CONNECTION",        List.of(918, 601)),
+        Map.entry("HTTP",              List.of(918, 295)),
+        Map.entry("SOCKET",            List.of(923, 941)),
+        Map.entry("NAMING_DIRECTORY",  List.of(502)),
+        Map.entry("CODEC_CRYPTO",      List.of(327, 261)),
+        Map.entry("DEPENDENCY",        List.of(114)),
+        Map.entry("REFLECTION",        List.of(470)),
+        Map.entry("OPERATING SYSTEM",  List.of(78)),
+        Map.entry("SCRIPTING",         List.of(79))
+    );
+
+    /**
+     * Returns the primary CWE IDs associated with a subcategory.
+     * These are the most characteristic CWEs for that kind of API access.
+     */
+    public static List<Integer> cwesForSubcategory(String subcategory) {
+        if (subcategory == null) return List.of();
+        return SUBCATEGORY_CWES.getOrDefault(subcategory.toUpperCase(), List.of());
+    }
+
+    /**
+     * Returns a human-readable description of what capability a category represents
+     * and which CWE it historically correlates with. Used for tooltip text on
+     * unaudited capability badges.
+     */
+    public static String capabilityDescription(String category, String subcategory) {
+        String subLabel = subcategory != null ? subcategory.toLowerCase().replace('_', ' ') : category.toLowerCase();
+        List<Integer> cwes = cwesForSubcategory(subcategory);
+        String cweRef = cwes.isEmpty() ? "" : " Historically associated with CWE-" + cwes.get(0) + ".";
+        return "This dependency has " + subLabel + " capability with no known CVE in this category." + cweRef;
+    }
 }
