@@ -19,6 +19,8 @@ public class DependencyReport {
     private List<SensitiveApiEntry> sensitiveApis;
     private int entryPointCount;
     private long analyzedAt;
+    private String scope;
+    private int dependencyDepth;
 
     /** Required by Jackson for deserialization. */
     public DependencyReport() {
@@ -104,5 +106,21 @@ public class DependencyReport {
 
     public void setAnalyzedAt(long analyzedAt) {
         this.analyzedAt = analyzedAt;
+    }
+
+    public String getScope() {
+        return scope;
+    }
+
+    public void setScope(String scope) {
+        this.scope = scope;
+    }
+
+    public int getDependencyDepth() {
+        return dependencyDepth;
+    }
+
+    public void setDependencyDepth(int dependencyDepth) {
+        this.dependencyDepth = dependencyDepth;
     }
 }

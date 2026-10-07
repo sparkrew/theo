@@ -280,9 +280,15 @@ public class AnalyzeMojo extends AbstractMojo {
                 packages = gavToPackages.getOrDefault(simpleGav, Set.of());
             }
 
+            // getDependencyTrail() returns the path from the project root to this artifact.
+            // Its size minus 1 is the depth (1 = direct, 2+ = transitive).
+            int depth = artifact.getDependencyTrail() != null
+                    ? artifact.getDependencyTrail().size() - 1 : 1;
+
             infos.add(new AnalysisOrchestrator.DependencyInfo(
                     artifact.getGroupId(), artifact.getArtifactId(), artifact.getVersion(),
-                    artifact.getType(), artifact.getFile().toPath(), packages
+                    artifact.getType(), artifact.getFile().toPath(), packages,
+                    artifact.getScope(), depth
             ));
         }
 

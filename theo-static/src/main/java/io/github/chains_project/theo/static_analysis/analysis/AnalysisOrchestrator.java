@@ -83,6 +83,8 @@ public class AnalysisOrchestrator {
                     dep.groupId(), dep.artifactId(), dep.version(), dep.type(),
                     dep.jarPath(), dep.packageNames()
             );
+            report.setScope(dep.scope());
+            report.setDependencyDepth(dep.dependencyDepth());
             cacheManager.storeDependencyReport(key, report);
             reports.add(report);
         }
@@ -127,6 +129,7 @@ public class AnalysisOrchestrator {
      */
     public record DependencyInfo(
             String groupId, String artifactId, String version, String type,
-            Path jarPath, Set<String> packageNames
+            Path jarPath, Set<String> packageNames,
+            String scope, int dependencyDepth
     ) {}
 }

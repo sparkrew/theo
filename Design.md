@@ -89,6 +89,10 @@ Each report serves a different use case:
 
 All three are generated on every run. The cost of generating them is negligible compared to the analysis itself.
 
+### Dependency metadata (scope and depth)
+
+Each dependency in the reports is annotated with its Maven scope (compile, runtime, test, provided) and its depth in the dependency tree (1 = direct, 2+ = transitive). Depth comes from Maven's `Artifact.getDependencyTrail()`. This metadata helps developers understand which dependencies they chose directly versus which were pulled in transitively — a sensitive API access from a transitive dependency at depth 4 is harder to notice and control than one from a direct dependency.
+
 ### Change detection via cached last-run
 
 Changes are detected by comparing the current `AnalysisSummary` against the previous one stored in the cache (`last-run.json`), not by inspecting git history or version control diffs. This approach is simpler and more reliable: it works regardless of the VCS in use, handles non-version-controlled projects, and directly compares analysis outputs rather than trying to infer changes from source diffs.

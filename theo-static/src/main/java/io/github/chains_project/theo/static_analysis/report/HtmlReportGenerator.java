@@ -87,6 +87,8 @@ public class HtmlReportGenerator {
             .append(" dependencies analyzed, ").append(withApis)
             .append(" with sensitive API access</p>\n");
 
+        Map<String, DependencyReport> reportsByGav = indexByGav(summary.getDependencyReports());
+
         // category -> subcategory -> depGav -> (apiName -> accessType)
         Map<String, Map<String, Map<String, Map<String, String>>>> grouped = new LinkedHashMap<>();
         for (String cat : CATEGORY_ORDER) {
@@ -123,7 +125,8 @@ public class HtmlReportGenerator {
 
                     content.append("<details class=\"dependency").append(reachableClass).append("\">\n");
                     content.append("  <summary><span class=\"dep-gav\">").append(escapeHtml(gav))
-                        .append("</span> <span class=\"count\">(").append(apis.size())
+                        .append("</span>").append(depMetaHtml(reportsByGav.get(gav)))
+                        .append(" <span class=\"count\">(").append(apis.size())
                         .append(" sensitive APIs)</span></summary>\n");
 
                     content.append("  <ul class=\"api-list\">\n");
@@ -158,6 +161,8 @@ public class HtmlReportGenerator {
                 .anyMatch(api -> summary.isReachable(dep.gav(), api.sensitiveApi())))
             .sorted(Comparator.comparing(DependencyReport::gav))
             .toList();
+
+        Map<String, DependencyReport> reportsByGav = indexByGav(reachableDeps);
 
         content.append("<p class=\"stats\">").append(reachableDeps.size())
             .append(" dependencies with client-reachable sensitive APIs</p>\n");
@@ -197,7 +202,7 @@ public class HtmlReportGenerator {
 
                     content.append("<details class=\"dependency reachable\">\n");
                     content.append("  <summary><span class=\"dep-gav\">").append(escapeHtml(gav))
-                        .append("</span></summary>\n");
+                        .append("</span>").append(depMetaHtml(dep)).append("</summary>\n");
 
                     Map<String, List<SensitiveApiEntry>> byApi = groupBySensitiveApi(depEntry.getValue());
                     for (Map.Entry<String, List<SensitiveApiEntry>> apiGroup : byApi.entrySet()) {
@@ -416,6 +421,38 @@ public class HtmlReportGenerator {
             grouped.computeIfAbsent(entry.sensitiveApi(), k -> new ArrayList<>()).add(entry);
         }
         return grouped;
+    }
+
+    /**
+     * Builds a lookup map from GAV string to DependencyReport for quick access
+     * to metadata like scope and depth when rendering.
+     */
+    private Map<String, DependencyReport> indexByGav(List<DependencyReport> reports) {
+        Map<String, DependencyReport> index = new HashMap<>();
+        for (DependencyReport r : reports) {
+            index.put(r.gav(), r);
+        }
+        return index;
+    }
+
+    /**
+     * Renders scope and depth labels for a dependency. Returns an HTML string
+     * like ' <span class="dep-meta">compile, depth 2</span>'.
+     */
+    private String depMetaHtml(DependencyReport dep) {
+        if (dep == null) return "";
+        StringBuilder sb = new StringBuilder();
+        List<String> parts = new ArrayList<>();
+        if (dep.getScope() != null && !dep.getScope().isEmpty()) {
+            parts.add(dep.getScope());
+        }
+        if (dep.getDependencyDepth() > 0) {
+            parts.add(dep.getDependencyDepth() == 1 ? "direct" : "depth " + dep.getDependencyDepth());
+        }
+        if (!parts.isEmpty()) {
+            sb.append(" <span class=\"dep-meta\">").append(String.join(", ", parts)).append("</span>");
+        }
+        return sb.toString();
     }
 
     private static String escapeHtml(String text) {
