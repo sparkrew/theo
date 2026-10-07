@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.HashSet;
 
 /**
  * Compares two analysis runs to detect what changed -- new deps, removed deps,
@@ -174,8 +175,12 @@ public class ChangeDetector {
         if (entries == null || names.isEmpty()) {
             return Collections.emptyList();
         }
+        // A single API name can appear in multiple call paths. We only need
+        // one entry per API for the change report — the first one is enough.
+        Set<String> seen = new HashSet<>();
         return entries.stream()
                 .filter(entry -> names.contains(entry.sensitiveApi()))
+                .filter(entry -> seen.add(entry.sensitiveApi()))
                 .collect(Collectors.toList());
     }
 }

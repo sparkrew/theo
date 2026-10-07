@@ -252,7 +252,7 @@ public class HtmlReportGenerator {
                                      AnalysisSummary summary, boolean onlyReachable) {
         boolean anyChanges = false;
 
-        // Added dependencies
+        // Added dependencies — group their APIs by category/subcategory
         for (DependencyReport added : changeSet.getAddedDependencies()) {
             List<SensitiveApiEntry> apis = onlyReachable
                 ? added.getSensitiveApis().stream()
@@ -263,13 +263,8 @@ public class HtmlReportGenerator {
             anyChanges = true;
             content.append("<details class=\"dependency added\">\n");
             content.append("  <summary><span class=\"change-marker\">+</span> <span class=\"dep-gav\">")
-                .append(escapeHtml(added.gav())).append("</span> <span class=\"count\">(new, ")
-                .append(apis.size()).append(" sensitive APIs)</span></summary>\n");
-
-            for (SensitiveApiEntry api : apis) {
-                content.append("    <div class=\"api-entry\">").append(escapeHtml(api.sensitiveApi()))
-                    .append(" (").append(api.accessType()).append(")</div>\n");
-            }
+                .append(escapeHtml(added.gav())).append("</span> (new)</summary>\n");
+            buildCategorizedApiList(content, apis, "");
             content.append("</details>\n");
         }
 
@@ -297,15 +292,11 @@ public class HtmlReportGenerator {
 
             if (!addedApis.isEmpty()) {
                 content.append("    <h3>Added</h3>\n");
-                for (SensitiveApiEntry api : addedApis) {
-                    content.append("    <div class=\"api-entry added\">+ ").append(escapeHtml(api.sensitiveApi())).append("</div>\n");
-                }
+                buildCategorizedApiList(content, addedApis, "+ ");
             }
             if (!removedApis.isEmpty()) {
                 content.append("    <h3>Removed</h3>\n");
-                for (SensitiveApiEntry api : removedApis) {
-                    content.append("    <div class=\"api-entry removed\">- ").append(escapeHtml(api.sensitiveApi())).append("</div>\n");
-                }
+                buildCategorizedApiList(content, removedApis, "- ");
             }
             content.append("</details>\n");
         }
@@ -321,6 +312,40 @@ public class HtmlReportGenerator {
 
         if (!anyChanges) {
             content.append("<p class=\"no-changes\">No changes in this category.</p>\n");
+        }
+    }
+
+    /**
+     * Renders a deduplicated list of APIs grouped by category and subcategory,
+     * matching the structure of the all-dependencies report.
+     */
+    private void buildCategorizedApiList(StringBuilder content, List<SensitiveApiEntry> apis, String prefix) {
+        // category -> subcategory -> (apiName -> accessType), deduplicated
+        Map<String, Map<String, Map<String, String>>> grouped = new TreeMap<>();
+        for (SensitiveApiEntry entry : apis) {
+            String cat = (entry.category() == null || entry.category().isBlank()) ? "OTHER" : entry.category().toUpperCase();
+            String sub = (entry.subcategory() == null || entry.subcategory().isBlank()) ? "General" : entry.subcategory();
+            grouped.computeIfAbsent(cat, k -> new TreeMap<>())
+                .computeIfAbsent(sub, k -> new TreeMap<>())
+                .putIfAbsent(entry.sensitiveApi(), entry.accessType());
+        }
+
+        for (Map.Entry<String, Map<String, Map<String, String>>> catEntry : grouped.entrySet()) {
+            content.append("    <h3 class=\"subcategory-header\">").append(escapeHtml(catEntry.getKey())).append("</h3>\n");
+            for (Map.Entry<String, Map<String, String>> subEntry : catEntry.getValue().entrySet()) {
+                content.append("    <h3 class=\"subcategory-header\" style=\"margin-left:16px\">").append(escapeHtml(subEntry.getKey())).append("</h3>\n");
+                content.append("    <ul class=\"api-list\">\n");
+                for (Map.Entry<String, String> api : subEntry.getValue().entrySet()) {
+                    String cssClass = prefix.startsWith("+") ? " class=\"added\"" : prefix.startsWith("-") ? " class=\"removed\"" : "";
+                    content.append("      <li").append(cssClass).append(">")
+                        .append(escapeHtml(prefix)).append(escapeHtml(api.getKey()));
+                    if (api.getValue() != null && !api.getValue().isEmpty()) {
+                        content.append(" <span class=\"access-type\">").append(api.getValue()).append("</span>");
+                    }
+                    content.append("</li>\n");
+                }
+                content.append("    </ul>\n");
+            }
         }
     }
 
