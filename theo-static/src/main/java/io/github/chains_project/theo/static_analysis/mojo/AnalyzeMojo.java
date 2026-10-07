@@ -114,7 +114,7 @@ public class AnalyzeMojo extends AbstractMojo {
 
             // Step 7: Run the analysis
             AnalysisSummary previousRun = orchestrator.loadPreviousRun(
-                    project.getGroupId(), project.getArtifactId(), project.getVersion());
+                    project.getGroupId(), project.getArtifactId());
 
             AnalysisSummary summary = orchestrator.analyze(
                     project.getGroupId(), project.getArtifactId(), project.getVersion(),

@@ -89,7 +89,7 @@ class CacheManagerTest {
 
         cacheManager.storeLastRun(summary);
         AnalysisSummary loaded = cacheManager.loadLastRun(
-                "com.myapp", "web-service", "3.0.0");
+                "com.myapp", "web-service");
 
         assertNotNull(loaded);
         assertEquals("com.myapp", loaded.getProjectGroupId());
@@ -103,6 +103,6 @@ class CacheManagerTest {
 
     @Test
     void loadLastRunReturnsNullWhenNoPreviousRunExists() {
-        assertNull(cacheManager.loadLastRun("com.myapp", "web-service", "1.0.0"));
+        assertNull(cacheManager.loadLastRun("com.myapp", "web-service"));
     }
 }

@@ -116,9 +116,9 @@ public class AnalysisOrchestrator {
      * Loads the previous analysis run from cache for change detection.
      * Returns null if this is the first time the project has been analyzed.
      */
-    public AnalysisSummary loadPreviousRun(String projectGroupId, String projectArtifactId, String projectVersion) {
-        log.debug("Loading previous run for {}:{}:{}", projectGroupId, projectArtifactId, projectVersion);
-        return cacheManager.loadLastRun(projectGroupId, projectArtifactId, projectVersion);
+    public AnalysisSummary loadPreviousRun(String projectGroupId, String projectArtifactId) {
+        log.debug("Loading previous run for {}:{}", projectGroupId, projectArtifactId);
+        return cacheManager.loadLastRun(projectGroupId, projectArtifactId);
     }
 
     /**

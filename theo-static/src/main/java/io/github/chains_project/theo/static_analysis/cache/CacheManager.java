@@ -95,9 +95,8 @@ public class CacheManager {
      * Useful for detecting which dependencies changed since the previous run.
      */
     public AnalysisSummary loadLastRun(String projectGroupId,
-                                       String projectArtifactId,
-                                       String projectVersion) {
-        Path path = projectLastRunPath(projectGroupId, projectArtifactId, projectVersion);
+                                       String projectArtifactId) {
+        Path path = projectLastRunPath(projectGroupId, projectArtifactId);
         if (!Files.exists(path)) {
             return null;
         }
@@ -115,8 +114,7 @@ public class CacheManager {
     public void storeLastRun(AnalysisSummary summary) {
         Path path = projectLastRunPath(
                 summary.getProjectGroupId(),
-                summary.getProjectArtifactId(),
-                summary.getProjectVersion());
+                summary.getProjectArtifactId());
         try {
             Files.createDirectories(path.getParent());
             mapper.writeValue(path.toFile(), summary);
@@ -136,10 +134,10 @@ public class CacheManager {
                 .resolve(REPORT_FILE);
     }
 
-    private Path projectLastRunPath(String groupId, String artifactId, String version) {
-        // Double-underscore separator keeps the directory name flat while
-        // still being unambiguous (Maven coordinates never contain "__").
-        String dirName = groupId + "__" + artifactId + "__" + version;
+    private Path projectLastRunPath(String groupId, String artifactId) {
+        // Version is intentionally excluded — we want to compare across version
+        // bumps, which is exactly when dependency changes matter most.
+        String dirName = groupId + "__" + artifactId;
         return cacheDir.resolve("projects")
                 .resolve(dirName)
                 .resolve(LAST_RUN_FILE);
