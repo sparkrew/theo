@@ -1,6 +1,5 @@
 package io.github.chains_project.theo.static_analysis.report;
 
-import io.github.chains_project.theo.static_analysis.decompile.MethodDecompiler;
 import io.github.chains_project.theo.static_analysis.model.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,15 +25,7 @@ public class HtmlReportGenerator {
     private static final DateTimeFormatter TIMESTAMP_FORMAT =
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
 
-    private final MethodDecompiler decompiler;
-
-    // Map from dependency GAV to the Path of its JAR file,
-    // needed for decompiling methods
-    private final Map<String, Path> dependencyJarPaths;
-
-    public HtmlReportGenerator(MethodDecompiler decompiler, Map<String, Path> dependencyJarPaths) {
-        this.decompiler = decompiler;
-        this.dependencyJarPaths = dependencyJarPaths;
+    public HtmlReportGenerator() {
     }
 
     /**
@@ -151,7 +142,7 @@ public class HtmlReportGenerator {
         }
 
         String html = renderTemplate(template, "Theo — all dependencies", content.toString(),
-            "For full call paths and decompiled source, see reachable.html.");
+            "For full call paths, see reachable.html.");
         Files.writeString(reportDir.resolve("all-dependencies.html"), html, StandardCharsets.UTF_8);
     }
 
@@ -215,7 +206,7 @@ public class HtmlReportGenerator {
                             .append("</summary>\n");
 
                         for (SensitiveApiEntry apiEntry : apiGroup.getValue()) {
-                            buildPathDetails(content, dep, apiEntry);
+                            buildPathDetails(content, apiEntry);
                         }
                         content.append("  </details>\n");
                     }
@@ -226,7 +217,7 @@ public class HtmlReportGenerator {
         }
 
         String html = renderTemplate(template, "Theo — client-reachable APIs", content.toString(),
-            "Decompiled code is produced by CFR and may not exactly match the original source.");
+            null);
         Files.writeString(reportDir.resolve("reachable.html"), html, StandardCharsets.UTF_8);
     }
 
@@ -270,7 +261,7 @@ public class HtmlReportGenerator {
             content.append("<details class=\"dependency added\">\n");
             content.append("  <summary><span class=\"change-marker\">+</span> <span class=\"dep-gav\">")
                 .append(escapeHtml(added.gav())).append("</span> (new)</summary>\n");
-            buildCategorizedApiList(content, apis, "");
+            buildCategorizedApiList(content, apis, "", onlyReachable);
             content.append("</details>\n");
         }
 
@@ -298,11 +289,11 @@ public class HtmlReportGenerator {
 
             if (!addedApis.isEmpty()) {
                 content.append("    <h3>Added</h3>\n");
-                buildCategorizedApiList(content, addedApis, "+ ");
+                buildCategorizedApiList(content, addedApis, "+ ", onlyReachable);
             }
             if (!removedApis.isEmpty()) {
                 content.append("    <h3>Removed</h3>\n");
-                buildCategorizedApiList(content, removedApis, "- ");
+                buildCategorizedApiList(content, removedApis, "- ", onlyReachable);
             }
             content.append("</details>\n");
         }
@@ -322,35 +313,61 @@ public class HtmlReportGenerator {
     }
 
     /**
-     * Renders a deduplicated list of APIs grouped by category and subcategory,
-     * matching the structure of the all-dependencies report.
+     * Renders a deduplicated list of APIs grouped by category and subcategory.
+     * Used in the changes report for the "all changes" section.
      */
     private void buildCategorizedApiList(StringBuilder content, List<SensitiveApiEntry> apis, String prefix) {
-        // category -> subcategory -> (apiName -> accessType), deduplicated
-        Map<String, Map<String, Map<String, String>>> grouped = new TreeMap<>();
+        buildCategorizedApiList(content, apis, prefix, false);
+    }
+
+    /**
+     * Renders a deduplicated list of APIs grouped by category and subcategory.
+     * When showPaths is true, each API gets expandable path details —
+     * used in the changes report for reachable APIs.
+     */
+    private void buildCategorizedApiList(StringBuilder content, List<SensitiveApiEntry> apis,
+                                         String prefix, boolean showPaths) {
+        // category -> subcategory -> list of entries (deduplicated by API name)
+        Map<String, Map<String, List<SensitiveApiEntry>>> grouped = new TreeMap<>();
+        Set<String> seen = new HashSet<>();
         for (SensitiveApiEntry entry : apis) {
+            if (!seen.add(entry.sensitiveApi())) continue;
             String cat = (entry.category() == null || entry.category().isBlank()) ? "OTHER" : entry.category().toUpperCase();
             String sub = (entry.subcategory() == null || entry.subcategory().isBlank()) ? "General" : entry.subcategory();
             grouped.computeIfAbsent(cat, k -> new TreeMap<>())
-                .computeIfAbsent(sub, k -> new TreeMap<>())
-                .putIfAbsent(entry.sensitiveApi(), entry.accessType());
+                .computeIfAbsent(sub, k -> new ArrayList<>())
+                .add(entry);
         }
 
-        for (Map.Entry<String, Map<String, Map<String, String>>> catEntry : grouped.entrySet()) {
+        for (Map.Entry<String, Map<String, List<SensitiveApiEntry>>> catEntry : grouped.entrySet()) {
             content.append("    <h3 class=\"subcategory-header\">").append(escapeHtml(catEntry.getKey())).append("</h3>\n");
-            for (Map.Entry<String, Map<String, String>> subEntry : catEntry.getValue().entrySet()) {
+            for (Map.Entry<String, List<SensitiveApiEntry>> subEntry : catEntry.getValue().entrySet()) {
                 content.append("    <h3 class=\"subcategory-header\" style=\"margin-left:16px\">").append(escapeHtml(subEntry.getKey())).append("</h3>\n");
-                content.append("    <ul class=\"api-list\">\n");
-                for (Map.Entry<String, String> api : subEntry.getValue().entrySet()) {
+
+                for (SensitiveApiEntry entry : subEntry.getValue()) {
                     String cssClass = prefix.startsWith("+") ? " class=\"added\"" : prefix.startsWith("-") ? " class=\"removed\"" : "";
-                    content.append("      <li").append(cssClass).append(">")
-                        .append(escapeHtml(prefix)).append(escapeHtml(api.getKey()));
-                    if (api.getValue() != null && !api.getValue().isEmpty()) {
-                        content.append(" <span class=\"access-type\">").append(api.getValue()).append("</span>");
+
+                    if (showPaths) {
+                        // Show expandable path for changed reachable APIs
+                        content.append("    <details class=\"sensitive-api\"").append(cssClass).append(">\n");
+                        content.append("      <summary>").append(escapeHtml(prefix))
+                            .append(escapeHtml(entry.sensitiveApi()));
+                        if (entry.accessType() != null && !entry.accessType().isEmpty()) {
+                            content.append(" <span class=\"access-type\">").append(entry.accessType()).append("</span>");
+                        }
+                        content.append("</summary>\n");
+                        buildPathDetails(content, entry);
+                        content.append("    </details>\n");
+                    } else {
+                        // Simple list item without path details
+                        content.append("    <div class=\"api-entry").append(cssClass.replace(" class=\"", " ").replace("\"", ""))
+                            .append("\">").append(escapeHtml(prefix)).append(escapeHtml(entry.sensitiveApi()));
+                        if (entry.accessType() != null && !entry.accessType().isEmpty()) {
+                            content.append(" <span class=\"access-type\">").append(entry.accessType()).append("</span>");
+                        }
+                        content.append("</div>\n");
                     }
-                    content.append("</li>\n");
                 }
-                content.append("    </ul>\n");
             }
         }
     }
@@ -358,18 +375,15 @@ public class HtmlReportGenerator {
     // --- Shared helpers ---
 
     /**
-     * Builds the expandable path + decompiled code for a single sensitive API entry.
+     * Builds the expandable call path for a single sensitive API entry.
      */
-    private void buildPathDetails(StringBuilder content, DependencyReport dep, SensitiveApiEntry entry) {
-        // Path display
+    private void buildPathDetails(StringBuilder content, SensitiveApiEntry entry) {
         content.append("    <details class=\"call-path\">\n");
 
-        // Show a condensed path summary
         String pathSummary = entry.fullPath().isEmpty() ? entry.entryPoint() + " → " + entry.sensitiveApi()
             : entry.fullPath().get(0) + " → ... → " + entry.fullPath().get(entry.fullPath().size() - 1);
         content.append("      <summary>").append(escapeHtml(pathSummary)).append("</summary>\n");
 
-        // Full path as an ordered list
         if (!entry.fullPath().isEmpty()) {
             content.append("      <ol class=\"path-list\">\n");
             for (String step : entry.fullPath()) {
@@ -378,42 +392,7 @@ public class HtmlReportGenerator {
             content.append("      </ol>\n");
         }
 
-        // Decompiled code for the entry point method
-        String entryPointMethod = entry.entryPoint();
-        String decompiledCode = tryDecompile(dep, entryPointMethod);
-        if (decompiledCode != null) {
-            content.append("      <details class=\"decompiled\">\n");
-            content.append("        <summary>View decompiled source</summary>\n");
-            content.append("        <pre><code>").append(escapeHtml(decompiledCode)).append("</code></pre>\n");
-            content.append("      </details>\n");
-        }
-
         content.append("    </details>\n");
-    }
-
-    /**
-     * Attempts to decompile the method referenced by an entry point string.
-     * The entry point format is "com.example.ClassName.methodName".
-     */
-    private String tryDecompile(DependencyReport dep, String entryPointMethod) {
-        if (decompiler == null) return null;
-
-        Path jarPath = dependencyJarPaths.get(dep.gav());
-        if (jarPath == null) return null;
-
-        // Parse "com.example.ClassName.methodName" into class and method parts
-        int lastDot = entryPointMethod.lastIndexOf('.');
-        if (lastDot <= 0) return null;
-
-        String className = entryPointMethod.substring(0, lastDot);
-        String methodName = entryPointMethod.substring(lastDot + 1);
-
-        try {
-            return decompiler.decompileMethod(jarPath, className, methodName);
-        } catch (Exception e) {
-            log.debug("Could not decompile {}: {}", entryPointMethod, e.getMessage());
-            return null;
-        }
     }
 
     private Map<String, List<SensitiveApiEntry>> groupBySensitiveApi(List<SensitiveApiEntry> entries) {

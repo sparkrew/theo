@@ -8,7 +8,6 @@ import io.github.chains_project.theo.static_analysis.analysis.ClientReachability
 import io.github.chains_project.theo.static_analysis.analysis.DependencyAnalyzer;
 import io.github.chains_project.theo.static_analysis.analysis.PackageMapBuilder;
 import io.github.chains_project.theo.static_analysis.cache.CacheManager;
-import io.github.chains_project.theo.static_analysis.decompile.MethodDecompiler;
 import io.github.chains_project.theo.static_analysis.model.AnalysisSummary;
 import io.github.chains_project.theo.static_analysis.model.ChangeSet;
 import io.github.chains_project.theo.static_analysis.report.CliReporter;
@@ -153,14 +152,7 @@ public class AnalyzeMojo extends AbstractMojo {
             ChangeDetector changeDetector = new ChangeDetector();
             ChangeSet changeSet = changeDetector.detectChanges(previousRun, summary);
 
-            Map<String, Path> jarPaths = depInfos.stream()
-                    .collect(Collectors.toMap(
-                            d -> d.groupId() + ":" + d.artifactId() + ":" + d.version(),
-                            AnalysisOrchestrator.DependencyInfo::jarPath,
-                            (a, b) -> a));
-
-            MethodDecompiler decompiler = new MethodDecompiler();
-            HtmlReportGenerator reportGen = new HtmlReportGenerator(decompiler, jarPaths);
+            HtmlReportGenerator reportGen = new HtmlReportGenerator();
             reportGen.generateReports(summary, changeSet, reportDir.toPath(), reachableOnly);
 
             CliReporter cli = new CliReporter(getLog());

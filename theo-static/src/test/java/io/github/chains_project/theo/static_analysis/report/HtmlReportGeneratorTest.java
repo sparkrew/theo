@@ -17,7 +17,7 @@ class HtmlReportGeneratorTest {
     void generateReportsCreatesAllExpectedFiles(@TempDir Path reportDir) throws IOException {
         AnalysisSummary summary = buildMinimalSummary();
         ChangeSet changeSet = new ChangeSet(List.of(), List.of(), List.of(), false);
-        HtmlReportGenerator generator = new HtmlReportGenerator(null, Map.of());
+        HtmlReportGenerator generator = new HtmlReportGenerator();
 
         generator.generateReports(summary, changeSet, reportDir);
 
@@ -35,7 +35,7 @@ class HtmlReportGeneratorTest {
     void generatedHtmlContainsDepGavSpan(@TempDir Path reportDir) throws IOException {
         AnalysisSummary summary = buildMinimalSummary();
         ChangeSet changeSet = new ChangeSet(List.of(), List.of(), List.of(), false);
-        HtmlReportGenerator generator = new HtmlReportGenerator(null, Map.of());
+        HtmlReportGenerator generator = new HtmlReportGenerator();
 
         generator.generateReports(summary, changeSet, reportDir);
 
@@ -50,7 +50,7 @@ class HtmlReportGeneratorTest {
     void generatedHtmlContainsDetailsElements(@TempDir Path reportDir) throws IOException {
         AnalysisSummary summary = buildMinimalSummary();
         ChangeSet changeSet = new ChangeSet(List.of(), List.of(), List.of(), false);
-        HtmlReportGenerator generator = new HtmlReportGenerator(null, Map.of());
+        HtmlReportGenerator generator = new HtmlReportGenerator();
 
         generator.generateReports(summary, changeSet, reportDir);
 
@@ -63,7 +63,7 @@ class HtmlReportGeneratorTest {
     void reachableSensitiveApisGetReachableClass(@TempDir Path reportDir) throws IOException {
         AnalysisSummary summary = buildMinimalSummary();
         ChangeSet changeSet = new ChangeSet(List.of(), List.of(), List.of(), false);
-        HtmlReportGenerator generator = new HtmlReportGenerator(null, Map.of());
+        HtmlReportGenerator generator = new HtmlReportGenerator();
 
         generator.generateReports(summary, changeSet, reportDir);
 
@@ -83,7 +83,7 @@ class HtmlReportGeneratorTest {
         AnalysisSummary summary = buildMinimalSummary();
         // hasPreviousRun = false means this is the first run
         ChangeSet changeSet = new ChangeSet(List.of(), List.of(), List.of(), false);
-        HtmlReportGenerator generator = new HtmlReportGenerator(null, Map.of());
+        HtmlReportGenerator generator = new HtmlReportGenerator();
 
         generator.generateReports(summary, changeSet, reportDir);
 
