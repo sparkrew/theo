@@ -30,7 +30,7 @@ public class AnalysisOrchestrator {
     public AnalysisOrchestrator(DependencyAnalyzer dependencyAnalyzer,
                                 ClientReachabilityAnalyzer reachabilityAnalyzer,
                                 CacheManager cacheManager) {
-        this.dependencyAnalyzer = Objects.requireNonNull(dependencyAnalyzer, "dependencyAnalyzer must not be null");
+        this.dependencyAnalyzer = dependencyAnalyzer;
         this.reachabilityAnalyzer = Objects.requireNonNull(reachabilityAnalyzer, "reachabilityAnalyzer must not be null");
         this.cacheManager = Objects.requireNonNull(cacheManager, "cacheManager must not be null");
     }
