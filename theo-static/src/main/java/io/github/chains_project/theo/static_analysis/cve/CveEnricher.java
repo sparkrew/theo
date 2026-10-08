@@ -36,6 +36,7 @@ public class CveEnricher {
             deps.add(new String[]{report.getGroupId(), report.getArtifactId(), report.getVersion()});
         }
 
+        log.info("Querying OSV.dev for CVEs across {} dependencies...", deps.size());
         Map<String, List<CveResult>> cveResults = client.queryBatch(deps);
 
         if (cveResults.isEmpty()) {
@@ -155,13 +156,18 @@ public class CveEnricher {
                                      Map<String, List<CveResult>> cveResults) {
         if (!Files.exists(htmlFile)) return;
 
+        log.info("Adding unaudited capability badges to {}...", htmlFile.getFileName());
+
         try {
             String content = Files.readString(htmlFile, StandardCharsets.UTF_8);
+
+            // Build all replacements first, then apply them in one pass.
+            // This avoids O(n * html_size) repeated string scans.
+            Map<String, String> replacements = new LinkedHashMap<>();
 
             for (DependencyReport dep : reports) {
                 List<CveResult> depCves = cveResults.getOrDefault(dep.gav(), List.of());
 
-                // Collect the categories already covered by known CVEs for this dependency
                 Set<String> coveredCategories = new HashSet<>();
                 for (CveResult cve : depCves) {
                     if (cve.categories() != null) {
@@ -169,33 +175,35 @@ public class CveEnricher {
                     }
                 }
 
-                // For each sensitive API this dependency uses, check if its category is uncovered
+                Set<String> processed = new HashSet<>();
                 for (SensitiveApiEntry entry : dep.getSensitiveApis()) {
                     String category = entry.category();
                     String subcategory = entry.subcategory();
                     if (category == null || category.isBlank()) continue;
                     if (coveredCategories.contains(category)) continue;
+                    if (!processed.add(entry.sensitiveApi())) continue;
 
-                    // This API's category has no CVE coverage — add an unaudited badge
                     List<Integer> cwes = CweCategoryMapper.cwesForSubcategory(subcategory);
                     if (cwes.isEmpty()) continue;
 
                     String cweLabel = "CWE-" + cwes.get(0);
                     String tooltip = CweCategoryMapper.capabilityDescription(category, subcategory);
-
                     String badge = " <span class=\"unaudited-badge\" title=\""
                         + escapeHtml(tooltip) + "\">" + cweLabel + "</span>";
 
-                    // Find this API in the HTML and append the badge after it.
-                    // The API appears as: <summary>api.name
                     String apiMarker = "<summary>" + escapeHtml(entry.sensitiveApi());
-                    if (content.contains(apiMarker) && !content.contains(apiMarker + badge)) {
-                        content = content.replace(apiMarker, apiMarker + badge);
-                    }
+                    replacements.putIfAbsent(apiMarker, apiMarker + badge);
+                }
+            }
+
+            for (Map.Entry<String, String> r : replacements.entrySet()) {
+                if (content.contains(r.getKey()) && !content.contains(r.getValue())) {
+                    content = content.replace(r.getKey(), r.getValue());
                 }
             }
 
             Files.writeString(htmlFile, content, StandardCharsets.UTF_8);
+            log.info("Added {} unaudited badges to {}.", replacements.size(), htmlFile.getFileName());
         } catch (IOException e) {
             log.warn("Could not add unaudited badges to {}: {}", htmlFile.getFileName(), e.getMessage());
         }
