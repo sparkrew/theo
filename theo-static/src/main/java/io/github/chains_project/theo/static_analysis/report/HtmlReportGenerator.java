@@ -41,18 +41,22 @@ public class HtmlReportGenerator {
      * Generates all three HTML reports.
      */
     public void generateReports(AnalysisSummary summary, ChangeSet changeSet, Path reportDir) throws IOException {
+        generateReports(summary, changeSet, reportDir, false);
+    }
+
+    public void generateReports(AnalysisSummary summary, ChangeSet changeSet,
+                                Path reportDir, boolean reachableOnly) throws IOException {
         Files.createDirectories(reportDir);
 
         String template = loadTemplate();
 
-        // 1. all-dependencies.html — every sensitive API from every dep
-        generateAllDependenciesReport(summary, template, reportDir);
-
-        // 2. reachable.html — only client-reachable sensitive APIs
+        // Always generate the reachable report
         generateReachableReport(summary, template, reportDir);
 
-        // 3. changes.html — what changed since last run
-        generateChangesReport(summary, changeSet, template, reportDir);
+        if (!reachableOnly) {
+            generateAllDependenciesReport(summary, template, reportDir);
+            generateChangesReport(summary, changeSet, template, reportDir);
+        }
 
         log.info("Reports written to {}", reportDir);
     }

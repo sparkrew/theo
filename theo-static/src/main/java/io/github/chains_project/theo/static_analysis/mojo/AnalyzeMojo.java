@@ -85,6 +85,10 @@ public class AnalyzeMojo extends AbstractMojo {
     @Parameter(property = "theo.directOnly", defaultValue = "false")
     private boolean directOnly;
 
+    /** When true, only the reachable report is generated. */
+    @Parameter(property = "theo.reachableOnly", defaultValue = "false")
+    private boolean reachableOnly;
+
     /** Local Maven repository path, used to resolve the analyzer jar when no explicit path is given. */
     @Parameter(defaultValue = "${settings.localRepository}", readonly = true)
     private String localRepository;
@@ -138,7 +142,7 @@ public class AnalyzeMojo extends AbstractMojo {
 
             MethodDecompiler decompiler = new MethodDecompiler();
             HtmlReportGenerator reportGen = new HtmlReportGenerator(decompiler, jarPaths);
-            reportGen.generateReports(summary, changeSet, reportDir.toPath());
+            reportGen.generateReports(summary, changeSet, reportDir.toPath(), reachableOnly);
 
             CliReporter cli = new CliReporter(getLog());
             cli.printSummary(summary, changeSet, reportDir.toPath(), verbose);
