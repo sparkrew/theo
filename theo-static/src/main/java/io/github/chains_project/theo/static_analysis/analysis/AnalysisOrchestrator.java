@@ -161,6 +161,12 @@ public class AnalysisOrchestrator {
                 }
             }
 
+            if (matched == null) {
+                log.warn("No match for depGav '{}'. Sample dependency keys:", depGav);
+                dependencies.stream().limit(3).forEach(d ->
+                    log.warn("  candidate: '{}'", d.groupId() + "." + d.artifactId() + ":" + d.version()));
+            }
+
             String gId, aId, ver, type;
             if (matched != null) {
                 gId = matched.groupId();
