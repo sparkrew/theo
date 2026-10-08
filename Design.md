@@ -101,16 +101,6 @@ Changes are detected by comparing the current `AnalysisSummary` against the prev
 
 Maven SNAPSHOT versions are mutable -- the same version string can refer to different bytecode at different times. The cache therefore always skips SNAPSHOTs and forces a fresh analysis. Release versions are immutable by Maven convention and can be safely cached.
 
-## Report colors
-
-The HTML reports use an intentional minimal palette:
-
-- **Cyan accent** (`#00bcd4`) -- headings and structural elements
-- **Green** -- success indicators, no-change status
-- **Light yellow** -- highlighting for client-reachable entries
-- **Gray border** -- CVE badges (subtle, with links to advisories)
-- **Dotted gray border** -- unaudited capability badges (with CWE label and tooltip)
-
 ## Cache structure
 
 ```

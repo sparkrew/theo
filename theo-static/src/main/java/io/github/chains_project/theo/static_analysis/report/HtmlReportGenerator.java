@@ -129,9 +129,7 @@ public class HtmlReportGenerator {
                         String apiClass = apiReachable ? " class=\"reachable\"" : "";
                         content.append("    <li").append(apiClass).append(">")
                             .append(escapeHtml(api.getKey()));
-                        if (api.getValue() != null && !api.getValue().isEmpty()) {
-                            content.append(" <span class=\"access-type\">").append(api.getValue()).append("</span>");
-                        }
+                        content.append(accessTypeSpan(api.getValue()));
                         content.append("</li>\n");
                     }
                     content.append("  </ul>\n");
@@ -202,10 +200,8 @@ public class HtmlReportGenerator {
                     for (Map.Entry<String, List<SensitiveApiEntry>> apiGroup : byApi.entrySet()) {
                         content.append("  <details class=\"sensitive-api reachable\">\n");
                         content.append("    <summary>").append(escapeHtml(apiGroup.getKey()));
-                        if (!apiGroup.getValue().isEmpty() && apiGroup.getValue().get(0).accessType() != null
-                                && !apiGroup.getValue().get(0).accessType().isEmpty()) {
-                            content.append(" <span class=\"access-type\">")
-                                .append(apiGroup.getValue().get(0).accessType()).append("</span>");
+                        if (!apiGroup.getValue().isEmpty()) {
+                            content.append(accessTypeSpan(apiGroup.getValue().get(0).accessType()));
                         }
                         content.append("</summary>\n");
 
@@ -236,14 +232,18 @@ public class HtmlReportGenerator {
         } else if (!changeSet.hasChanges()) {
             content.append("<p class=\"stats\">No changes detected since the last run.</p>\n");
         } else if (reachableOnly) {
+            content.append("<div class=\"reachable-section\">\n");
             content.append("<h2>Changes to client-reachable APIs</h2>\n");
             buildChangesSection(content, changeSet, summary, true);
+            content.append("</div>\n");
         } else {
             content.append("<h2>Changes across all dependencies</h2>\n");
             buildChangesSection(content, changeSet, summary, false);
 
+            content.append("<div class=\"reachable-section\">\n");
             content.append("<h2>Changes to client-reachable APIs</h2>\n");
             buildChangesSection(content, changeSet, summary, true);
+            content.append("</div>\n");
         }
 
         String html = renderTemplate(template, "Theo — changes since last run", content.toString(), null);
@@ -356,21 +356,17 @@ public class HtmlReportGenerator {
                         // Show expandable path for changed reachable APIs
                         content.append("    <details class=\"sensitive-api\"").append(cssClass).append(">\n");
                         content.append("      <summary>").append(escapeHtml(prefix))
-                            .append(escapeHtml(entry.sensitiveApi()));
-                        if (entry.accessType() != null && !entry.accessType().isEmpty()) {
-                            content.append(" <span class=\"access-type\">").append(entry.accessType()).append("</span>");
-                        }
-                        content.append("</summary>\n");
+                            .append(escapeHtml(entry.sensitiveApi()))
+                            .append(accessTypeSpan(entry.accessType()))
+                            .append("</summary>\n");
                         buildPathDetails(content, entry);
                         content.append("    </details>\n");
                     } else {
                         // Simple list item without path details
                         content.append("    <div class=\"api-entry").append(cssClass.replace(" class=\"", " ").replace("\"", ""))
-                            .append("\">").append(escapeHtml(prefix)).append(escapeHtml(entry.sensitiveApi()));
-                        if (entry.accessType() != null && !entry.accessType().isEmpty()) {
-                            content.append(" <span class=\"access-type\">").append(entry.accessType()).append("</span>");
-                        }
-                        content.append("</div>\n");
+                            .append("\">").append(escapeHtml(prefix)).append(escapeHtml(entry.sensitiveApi()))
+                            .append(accessTypeSpan(entry.accessType()))
+                            .append("</div>\n");
                     }
                 }
             }
@@ -438,6 +434,12 @@ public class HtmlReportGenerator {
             sb.append(" <span class=\"dep-meta\">").append(String.join(", ", parts)).append("</span>");
         }
         return sb.toString();
+    }
+
+    private static String accessTypeSpan(String accessType) {
+        if (accessType == null || accessType.isEmpty()) return "";
+        String extraClass = "DIRECT".equals(accessType) ? " direct" : "";
+        return " <span class=\"access-type" + extraClass + "\">" + accessType + "</span>";
     }
 
     private static String escapeHtml(String text) {

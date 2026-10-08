@@ -44,6 +44,9 @@
         .dependency[open] > summary::before { content: "\25bc"; }
         .dependency.reachable > summary { background: var(--highlight); }
 
+        /* reachable section in changes report */
+        .reachable-section { background: var(--highlight); padding: 4px; margin-top: 8px; }
+
         /* change markers */
         .change-marker { font-weight: bold; margin-right: 2px; }
         .dependency.added > summary .change-marker { color: var(--success); }
@@ -54,6 +57,7 @@
         .dep-meta { font-size: 10px; color: #888; margin-left: 4px; }
         .count { color: #888; font-size: 11px; }
         .access-type { font-size: 10px; color: #888; margin-left: 4px; }
+        .access-type.direct { color: #33ccff; font-weight: 600; }
 
         /* sensitive API entries */
         .sensitive-api { margin-left: 12px; border-left: 2px solid var(--border); margin-bottom: 1px; }
