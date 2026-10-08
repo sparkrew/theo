@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import io.github.chains_project.theo.theo_commons.APILoader;
 import io.github.chains_project.theo.theo_commons.PackageMatcher;
 import io.github.chains_project.theo.theo_commons.SensitiveAPIDescriptor;
+import io.github.chains_project.theo.static_analysis.model.SensitiveApiEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sootup.callgraph.CallGraph;
@@ -47,7 +48,27 @@ public class ClientReachabilityAnalyzer {
      * @return a set of "depGav::className.methodName" strings for each reachable sensitive API
      */
     public Set<String> findReachableSensitiveApis(String pathToJar, List<String> packageNames, Path packageMapPath) {
-        // Load the sensitive API descriptors from the classpath resource.
+        // Delegate to the full analysis and extract just the identifier set
+        FullReachabilityResult full = analyzeReachability(pathToJar, packageNames, packageMapPath);
+        return full.reachableKeys;
+    }
+
+    /**
+     * Returns the full reachable sensitive API data grouped by dependency GAV.
+     * Each entry has the path, access type, and category info — enough to build
+     * the reachable report without running per-dependency analysis.
+     */
+    public Map<String, List<SensitiveApiEntry>> findReachableEntries(String pathToJar, List<String> packageNames, Path packageMapPath) {
+        FullReachabilityResult full = analyzeReachability(pathToJar, packageNames, packageMapPath);
+        return full.entriesByDep;
+    }
+
+    /**
+     * Core analysis logic shared by both public methods. Walks the client project's
+     * call graph and collects both the identifier set (for highlighting) and the full
+     * SensitiveApiEntry objects (for building reports).
+     */
+    private FullReachabilityResult analyzeReachability(String pathToJar, List<String> packageNames, Path packageMapPath) {
         List<SensitiveAPIDescriptor> sensitiveApiList = APILoader.loadFromClasspath(
                 "sensitive_apis.json", new TypeReference<>() {}
         );
@@ -55,27 +76,31 @@ public class ClientReachabilityAnalyzer {
                 .map(desc -> desc.className() + "." + desc.method())
                 .collect(Collectors.toSet());
 
-        // Build the set of package prefixes we should skip when looking for third-party code
-        // (JDK classes, test frameworks, and the project's own packages).
+        // Build a lookup for category/subcategory by "className.method"
+        Map<String, String[]> categoryLookup = new HashMap<>();
+        for (SensitiveAPIDescriptor desc : sensitiveApiList) {
+            categoryLookup.put(desc.className() + "." + desc.method(),
+                    new String[]{desc.category(), desc.subcategory()});
+        }
+
         Set<String> ignoredPrefixes = PackageMatcher.loadIgnoredPrefixes(packageNames);
 
         JavaView view = createJavaView(pathToJar);
         Set<MethodSignature> entryPoints = detectEntryPoints(view, packageNames);
         log.info("Found {} public methods as entry points.", entryPoints.size());
 
-        Set<String> results = new HashSet<>();
+        Set<String> reachableKeys = new HashSet<>();
+        Map<String, List<SensitiveApiEntry>> entriesByDep = new HashMap<>();
 
         try {
             RapidTypeAnalysisAlgorithm rta = new RapidTypeAnalysisAlgorithm(view);
             CallGraph cg = rta.initialize(new ArrayList<>(entryPoints));
 
-            // For every entry point, collect all methods reachable through the call graph.
             Map<MethodSignature, Set<MethodSignature>> reachableMap = new HashMap<>();
             for (MethodSignature entryPoint : entryPoints) {
                 reachableMap.put(entryPoint, getAllReachableMethods(cg, entryPoint));
             }
 
-            // Check each entry point's reachable set for sensitive APIs and trace the paths.
             for (Map.Entry<MethodSignature, Set<MethodSignature>> entry : reachableMap.entrySet()) {
                 MethodSignature entryPoint = entry.getKey();
                 Set<MethodSignature> reachable = entry.getValue();
@@ -88,23 +113,50 @@ public class ClientReachabilityAnalyzer {
                     List<List<MethodSignature>> allPaths = findPaths(cg, entryPoint, sensitiveMethod);
 
                     for (List<MethodSignature> path : allPaths) {
-                        // Walk the path looking for the first third-party method (something that
-                        // is neither the project's own code nor a well-known framework class).
                         MethodSignature firstThirdParty = null;
-                        for (MethodSignature method : path) {
+                        int firstThirdPartyIndex = -1;
+                        for (int i = 0; i < path.size(); i++) {
+                            MethodSignature method = path.get(i);
                             if (!method.equals(sensitiveMethod) && isThirdPartyMethod(method, ignoredPrefixes)) {
                                 firstThirdParty = method;
+                                firstThirdPartyIndex = i;
                                 break;
                             }
                         }
 
                         if (firstThirdParty != null) {
                             String thirdPartyFormatted = formatMethodSignature(firstThirdParty);
-                            String packageName = extractPackageName(thirdPartyFormatted, ignoredPrefixes);
-                            String depGav = PackageMatcher.getDependencyName(packageName, packageMapPath);
+                            String pkgName = extractPackageName(thirdPartyFormatted, ignoredPrefixes);
+                            String depGav = PackageMatcher.getDependencyName(pkgName, packageMapPath);
                             if (depGav != null) {
                                 String sensitiveApiName = formatMethodSignature(sensitiveMethod);
-                                results.add(depGav + "::" + sensitiveApiName);
+                                reachableKeys.add(depGav + "::" + sensitiveApiName);
+
+                                // Determine access type: direct if the third-party method
+                                // is immediately followed by the sensitive API in the path
+                                boolean isDirect = firstThirdPartyIndex + 1 < path.size()
+                                        && path.get(firstThirdPartyIndex + 1).equals(sensitiveMethod);
+                                String accessType = isDirect ? "DIRECT" : "INDIRECT";
+
+                                List<String> fullPath = path.stream()
+                                        .map(this::formatMethodSignature)
+                                        .collect(Collectors.toList());
+
+                                String[] catInfo = categoryLookup.get(sensitiveApiName);
+                                String category = catInfo != null ? catInfo[0] : null;
+                                String subcategory = catInfo != null ? catInfo[1] : null;
+
+                                SensitiveApiEntry apiEntry = new SensitiveApiEntry(
+                                        sensitiveApiName,
+                                        thirdPartyFormatted,
+                                        accessType,
+                                        List.of(depGav),
+                                        fullPath,
+                                        category,
+                                        subcategory
+                                );
+
+                                entriesByDep.computeIfAbsent(depGav, k -> new ArrayList<>()).add(apiEntry);
                             }
                         }
                     }
@@ -114,8 +166,13 @@ public class ClientReachabilityAnalyzer {
             log.error("Failed to initialize call graph or analyze reachability.", e);
         }
 
-        return results;
+        return new FullReachabilityResult(reachableKeys, entriesByDep);
     }
+
+    private record FullReachabilityResult(
+            Set<String> reachableKeys,
+            Map<String, List<SensitiveApiEntry>> entriesByDep
+    ) {}
 
     // -- Private helpers (same algorithms as MethodExtractor) --------------------------------
 

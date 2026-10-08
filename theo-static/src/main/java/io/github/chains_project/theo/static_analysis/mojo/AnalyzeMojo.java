@@ -110,26 +110,38 @@ public class AnalyzeMojo extends AbstractMojo {
 
         try {
             Path mapPath = ensurePackageMap();
-            Path depsDir = prepareDepsDirectory();
-            Path analyzerJar = resolveAnalyzerJar();
-
             Map<String, Set<String>> packageMap = loadPackageMap(mapPath);
             List<AnalysisOrchestrator.DependencyInfo> depInfos = buildDependencyInfos(packageMap);
 
             CacheManager cache = new CacheManager(cacheDir.toPath());
-            DependencyAnalyzer depAnalyzer = new DependencyAnalyzer(analyzerJar, mapPath, depsDir);
             ClientReachabilityAnalyzer reachAnalyzer = new ClientReachabilityAnalyzer();
-            AnalysisOrchestrator orchestrator = new AnalysisOrchestrator(depAnalyzer, reachAnalyzer, cache);
 
             String projectJarPath = findProjectJar();
             List<String> pkgNames = parsePackageNames(packageNames);
 
-            AnalysisSummary previousRun = orchestrator.loadPreviousRun(
+            // Load previous run before analysis overwrites it
+            AnalysisSummary previousRun = cache.loadLastRun(
                     project.getGroupId(), project.getArtifactId());
 
-            AnalysisSummary summary = orchestrator.analyze(
-                    project.getGroupId(), project.getArtifactId(), project.getVersion(),
-                    projectJarPath, pkgNames, mapPath, depInfos);
+            AnalysisSummary summary;
+
+            if (reachableOnly) {
+                // Skip the expensive per-dependency subprocess calls. The client
+                // reachability analysis already computes everything the reachable
+                // report needs from the project's own call graph.
+                AnalysisOrchestrator orchestrator = new AnalysisOrchestrator(null, reachAnalyzer, cache);
+                summary = orchestrator.analyzeReachableOnly(
+                        project.getGroupId(), project.getArtifactId(), project.getVersion(),
+                        projectJarPath, pkgNames, mapPath, depInfos);
+            } else {
+                Path depsDir = prepareDepsDirectory();
+                Path analyzerJar = resolveAnalyzerJar();
+                DependencyAnalyzer depAnalyzer = new DependencyAnalyzer(analyzerJar, mapPath, depsDir);
+                AnalysisOrchestrator orchestrator = new AnalysisOrchestrator(depAnalyzer, reachAnalyzer, cache);
+                summary = orchestrator.analyze(
+                        project.getGroupId(), project.getArtifactId(), project.getVersion(),
+                        projectJarPath, pkgNames, mapPath, depInfos);
+            }
 
             ChangeDetector changeDetector = new ChangeDetector();
             ChangeSet changeSet = changeDetector.detectChanges(previousRun, summary);

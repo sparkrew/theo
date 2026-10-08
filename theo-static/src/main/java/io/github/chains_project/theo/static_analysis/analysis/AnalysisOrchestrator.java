@@ -115,6 +115,80 @@ public class AnalysisOrchestrator {
     }
 
     /**
+     * Lightweight analysis that skips per-dependency subprocess calls. Only runs
+     * the client reachability analysis, which is fast because it uses the project's
+     * own JAR and call graph. The resulting summary has DependencyReports built from
+     * the reachability data — enough for the reachable report but not the full
+     * all-dependencies report.
+     */
+    public AnalysisSummary analyzeReachableOnly(String projectGroupId, String projectArtifactId,
+                                                 String projectVersion, String projectJarPath,
+                                                 List<String> packageNames, Path packageMapPath,
+                                                 List<DependencyInfo> dependencies) {
+
+        log.info("Running reachable-only analysis for {}:{}:{}", projectGroupId, projectArtifactId, projectVersion);
+
+        Map<String, List<SensitiveApiEntry>> entriesByDep =
+                reachabilityAnalyzer.findReachableEntries(projectJarPath, packageNames, packageMapPath);
+
+        log.info("Found reachable sensitive APIs across {} dependencies", entriesByDep.size());
+
+        // Build DependencyReports from the reachability data. These won't have
+        // the full per-dependency analysis but contain enough for the reachable report.
+        Map<String, DependencyInfo> depInfoMap = new HashMap<>();
+        for (DependencyInfo dep : dependencies) {
+            depInfoMap.put(dep.groupId() + ":" + dep.artifactId() + ":" + dep.type()
+                    + (dep.version() != null ? ":" + dep.version() : ""), dep);
+        }
+
+        List<DependencyReport> reports = new ArrayList<>();
+        Set<String> reachableKeys = new HashSet<>();
+
+        for (Map.Entry<String, List<SensitiveApiEntry>> entry : entriesByDep.entrySet()) {
+            String depGav = entry.getKey();
+            List<SensitiveApiEntry> entries = entry.getValue();
+
+            // Parse GAV from the package map format (groupId:artifactId:type:version)
+            String[] parts = depGav.split(":");
+            String gId = parts.length > 0 ? parts[0] : "";
+            String aId = parts.length > 1 ? parts[1] : "";
+            String type = parts.length > 2 ? parts[2] : "jar";
+            String ver = parts.length > 3 ? parts[3] : "";
+            // Handle the case where format is groupId:artifactId:type:version (4 parts)
+            // or groupId:artifactId:type:classifier:version (5 parts)
+            if (parts.length == 5) {
+                ver = parts[4];
+            }
+
+            DependencyReport report = new DependencyReport(gId, aId, ver, type,
+                    entries, 0, System.currentTimeMillis());
+
+            // Try to find scope/depth from the dependency info
+            for (DependencyInfo dep : dependencies) {
+                if (dep.groupId().equals(gId) && dep.artifactId().equals(aId)) {
+                    report.setScope(dep.scope());
+                    report.setDependencyDepth(dep.dependencyDepth());
+                    break;
+                }
+            }
+
+            reports.add(report);
+
+            for (SensitiveApiEntry apiEntry : entries) {
+                reachableKeys.add(report.gav() + "::" + apiEntry.sensitiveApi());
+            }
+        }
+
+        AnalysisSummary summary = new AnalysisSummary(
+                projectGroupId, projectArtifactId, projectVersion,
+                reports, reachableKeys, System.currentTimeMillis()
+        );
+
+        cacheManager.storeLastRun(summary);
+        return summary;
+    }
+
+    /**
      * Loads the previous analysis run from cache for change detection.
      * Returns null if this is the first time the project has been analyzed.
      */
