@@ -125,22 +125,25 @@ public class AnalyzeMojo extends AbstractMojo {
 
             AnalysisSummary summary;
 
+            // Deps directory is needed in both paths — the full analysis uses it for
+            // the per-dep subprocess, and reachableOnly needs it for SootUp's classpath.
+            Path depsDir = prepareDepsDirectory();
+
             if (reachableOnly) {
                 // Skip the expensive per-dependency subprocess calls. The client
-                // reachability analysis already computes everything the reachable
-                // report needs from the project's own call graph.
+                // reachability analysis builds its own call graph with all deps
+                // on the classpath, which is enough for the reachable report.
                 AnalysisOrchestrator orchestrator = new AnalysisOrchestrator(null, reachAnalyzer, cache);
                 summary = orchestrator.analyzeReachableOnly(
                         project.getGroupId(), project.getArtifactId(), project.getVersion(),
-                        projectJarPath, pkgNames, mapPath, depInfos);
+                        projectJarPath, pkgNames, mapPath, depInfos, depsDir);
             } else {
-                Path depsDir = prepareDepsDirectory();
                 Path analyzerJar = resolveAnalyzerJar();
                 DependencyAnalyzer depAnalyzer = new DependencyAnalyzer(analyzerJar, mapPath, depsDir);
                 AnalysisOrchestrator orchestrator = new AnalysisOrchestrator(depAnalyzer, reachAnalyzer, cache);
                 summary = orchestrator.analyze(
                         project.getGroupId(), project.getArtifactId(), project.getVersion(),
-                        projectJarPath, pkgNames, mapPath, depInfos);
+                        projectJarPath, pkgNames, mapPath, depInfos, depsDir);
             }
 
             ChangeDetector changeDetector = new ChangeDetector();

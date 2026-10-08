@@ -15,6 +15,10 @@ import sootup.core.signatures.MethodSignature;
 import sootup.java.bytecode.frontend.inputlocation.JavaClassPathAnalysisInputLocation;
 import sootup.java.core.views.JavaView;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -48,8 +52,11 @@ public class ClientReachabilityAnalyzer {
      * @return a set of "depGav::className.methodName" strings for each reachable sensitive API
      */
     public Set<String> findReachableSensitiveApis(String pathToJar, List<String> packageNames, Path packageMapPath) {
-        // Delegate to the full analysis and extract just the identifier set
-        FullReachabilityResult full = analyzeReachability(pathToJar, packageNames, packageMapPath);
+        return findReachableSensitiveApis(pathToJar, packageNames, packageMapPath, null);
+    }
+
+    public Set<String> findReachableSensitiveApis(String pathToJar, List<String> packageNames, Path packageMapPath, Path depsDir) {
+        FullReachabilityResult full = analyzeReachability(pathToJar, packageNames, packageMapPath, depsDir);
         return full.reachableKeys;
     }
 
@@ -57,9 +64,11 @@ public class ClientReachabilityAnalyzer {
      * Returns the full reachable sensitive API data grouped by dependency GAV.
      * Each entry has the path, access type, and category info — enough to build
      * the reachable report without running per-dependency analysis.
+     *
+     * @param depsDir directory containing dependency JARs for SootUp classpath
      */
-    public Map<String, List<SensitiveApiEntry>> findReachableEntries(String pathToJar, List<String> packageNames, Path packageMapPath) {
-        FullReachabilityResult full = analyzeReachability(pathToJar, packageNames, packageMapPath);
+    public Map<String, List<SensitiveApiEntry>> findReachableEntries(String pathToJar, List<String> packageNames, Path packageMapPath, Path depsDir) {
+        FullReachabilityResult full = analyzeReachability(pathToJar, packageNames, packageMapPath, depsDir);
         return full.entriesByDep;
     }
 
@@ -68,7 +77,7 @@ public class ClientReachabilityAnalyzer {
      * call graph and collects both the identifier set (for highlighting) and the full
      * SensitiveApiEntry objects (for building reports).
      */
-    private FullReachabilityResult analyzeReachability(String pathToJar, List<String> packageNames, Path packageMapPath) {
+    private FullReachabilityResult analyzeReachability(String pathToJar, List<String> packageNames, Path packageMapPath, Path depsDir) {
         List<SensitiveAPIDescriptor> sensitiveApiList = APILoader.loadFromClasspath(
                 "sensitive_apis.json", new TypeReference<>() {}
         );
@@ -85,7 +94,7 @@ public class ClientReachabilityAnalyzer {
 
         Set<String> ignoredPrefixes = PackageMatcher.loadIgnoredPrefixes(packageNames);
 
-        JavaView view = createJavaView(pathToJar);
+        JavaView view = createJavaView(pathToJar, depsDir);
         Set<MethodSignature> entryPoints = detectEntryPoints(view, packageNames);
         log.info("Found {} public methods as entry points.", entryPoints.size());
 
@@ -176,8 +185,23 @@ public class ClientReachabilityAnalyzer {
 
     // -- Private helpers (same algorithms as MethodExtractor) --------------------------------
 
-    private JavaView createJavaView(String pathToJar) {
-        AnalysisInputLocation inputLocation = new JavaClassPathAnalysisInputLocation(pathToJar);
+    private JavaView createJavaView(String pathToJar, Path depsDir) {
+        // SootUp needs all dependency JARs on the classpath to resolve call graph
+        // edges that cross from the project into dependency code.
+        String classpath = pathToJar;
+        if (depsDir != null && Files.isDirectory(depsDir)) {
+            StringBuilder sb = new StringBuilder(pathToJar);
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(depsDir, "*.jar")) {
+                for (Path jar : stream) {
+                    sb.append(File.pathSeparator).append(jar.toAbsolutePath());
+                }
+            } catch (IOException e) {
+                log.warn("Failed to list dependency JARs in {}: {}", depsDir, e.getMessage());
+            }
+            classpath = sb.toString();
+            log.info("SootUp classpath: {} entries", classpath.split(File.pathSeparator).length);
+        }
+        AnalysisInputLocation inputLocation = new JavaClassPathAnalysisInputLocation(classpath);
         return new JavaView(inputLocation);
     }
 

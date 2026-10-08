@@ -50,7 +50,7 @@ public class AnalysisOrchestrator {
     public AnalysisSummary analyze(String projectGroupId, String projectArtifactId,
                                    String projectVersion, String projectJarPath,
                                    List<String> packageNames, Path packageMapPath,
-                                   List<DependencyInfo> dependencies) {
+                                   List<DependencyInfo> dependencies, Path depsDir) {
 
         log.info("Starting analysis for {}:{}:{} with {} dependencies",
                 projectGroupId, projectArtifactId, projectVersion, dependencies.size());
@@ -97,7 +97,7 @@ public class AnalysisOrchestrator {
         // from the client code by walking the project's call graph.
         log.info("Running client reachability analysis on {}", projectJarPath);
         Set<String> reachable = reachabilityAnalyzer.findReachableSensitiveApis(
-                projectJarPath, packageNames, packageMapPath
+                projectJarPath, packageNames, packageMapPath, depsDir
         );
         log.info("Found {} reachable sensitive APIs from client code", reachable.size());
 
@@ -124,12 +124,12 @@ public class AnalysisOrchestrator {
     public AnalysisSummary analyzeReachableOnly(String projectGroupId, String projectArtifactId,
                                                  String projectVersion, String projectJarPath,
                                                  List<String> packageNames, Path packageMapPath,
-                                                 List<DependencyInfo> dependencies) {
+                                                 List<DependencyInfo> dependencies, Path depsDir) {
 
         log.info("Running reachable-only analysis for {}:{}:{}", projectGroupId, projectArtifactId, projectVersion);
 
         Map<String, List<SensitiveApiEntry>> entriesByDep =
-                reachabilityAnalyzer.findReachableEntries(projectJarPath, packageNames, packageMapPath);
+                reachabilityAnalyzer.findReachableEntries(projectJarPath, packageNames, packageMapPath, depsDir);
 
         log.info("Found reachable sensitive APIs across {} dependencies", entriesByDep.size());
 
