@@ -30,6 +30,9 @@ public class CveCheckMojo extends AnalyzeMojo {
         // Run the full analysis first (preprocess, analyze deps, generate reports)
         AnalysisSummary summary = runAnalysis();
 
+        // POM modules are skipped by runAnalysis
+        if (summary == null) return;
+
         // Then enrich the reports with CVE data from OSV.dev
         CveEnricher enricher = new CveEnricher();
         Map<String, List<CveResult>> cveResults = enricher.enrichReports(

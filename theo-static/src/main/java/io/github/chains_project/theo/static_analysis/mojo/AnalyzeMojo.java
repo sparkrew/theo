@@ -99,6 +99,11 @@ public class AnalyzeMojo extends AbstractMojo {
      * (like CveCheckMojo) call this and then layer on additional logic.
      */
     protected AnalysisSummary runAnalysis() throws MojoExecutionException {
+        if ("pom".equals(project.getPackaging())) {
+            getLog().info("Skipping POM module " + project.getArtifactId() + " (no compiled code to analyze)");
+            return null;
+        }
+
         try {
             Path mapPath = ensurePackageMap();
             Path depsDir = prepareDepsDirectory();
