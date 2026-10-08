@@ -148,28 +148,42 @@ public class AnalysisOrchestrator {
             String depGav = entry.getKey();
             List<SensitiveApiEntry> entries = entry.getValue();
 
-            // Parse GAV from the package map format (groupId:artifactId:type:version)
-            String[] parts = depGav.split(":");
-            String gId = parts.length > 0 ? parts[0] : "";
-            String aId = parts.length > 1 ? parts[1] : "";
-            String type = parts.length > 2 ? parts[2] : "jar";
-            String ver = parts.length > 3 ? parts[3] : "";
-            // Handle the case where format is groupId:artifactId:type:version (4 parts)
-            // or groupId:artifactId:type:classifier:version (5 parts)
-            if (parts.length == 5) {
-                ver = parts[4];
+            // PackageMatcher.getDependencyName() returns "groupId.artifactId:version".
+            // We match it against the known dependency list to get proper GAV fields,
+            // since parsing the dot-separated string is ambiguous (dots appear in both
+            // groupId and artifactId).
+            DependencyInfo matched = null;
+            for (DependencyInfo dep : dependencies) {
+                String matchKey = dep.groupId() + "." + dep.artifactId() + ":" + dep.version();
+                if (matchKey.equals(depGav)) {
+                    matched = dep;
+                    break;
+                }
+            }
+
+            String gId, aId, ver, type;
+            if (matched != null) {
+                gId = matched.groupId();
+                aId = matched.artifactId();
+                ver = matched.version();
+                type = matched.type();
+            } else {
+                // Fallback: split on the last colon to separate version
+                int lastColon = depGav.lastIndexOf(':');
+                String namepart = lastColon > 0 ? depGav.substring(0, lastColon) : depGav;
+                ver = lastColon > 0 ? depGav.substring(lastColon + 1) : "";
+                gId = namepart;
+                aId = "";
+                type = "jar";
+                log.warn("Could not match dependency '{}' to a known artifact", depGav);
             }
 
             DependencyReport report = new DependencyReport(gId, aId, ver, type,
                     entries, 0, System.currentTimeMillis());
 
-            // Try to find scope/depth from the dependency info
-            for (DependencyInfo dep : dependencies) {
-                if (dep.groupId().equals(gId) && dep.artifactId().equals(aId)) {
-                    report.setScope(dep.scope());
-                    report.setDependencyDepth(dep.dependencyDepth());
-                    break;
-                }
+            if (matched != null) {
+                report.setScope(matched.scope());
+                report.setDependencyDepth(matched.dependencyDepth());
             }
 
             reports.add(report);
