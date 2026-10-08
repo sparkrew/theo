@@ -41,12 +41,11 @@ public class HtmlReportGenerator {
 
         String template = loadTemplate();
 
-        // Always generate the reachable report
         generateReachableReport(summary, template, reportDir);
+        generateChangesReport(summary, changeSet, template, reportDir, reachableOnly);
 
         if (!reachableOnly) {
             generateAllDependenciesReport(summary, template, reportDir);
-            generateChangesReport(summary, changeSet, template, reportDir);
         }
 
         log.info("Reports written to {}", reportDir);
@@ -224,19 +223,20 @@ public class HtmlReportGenerator {
     // --- changes.html ---
 
     private void generateChangesReport(AnalysisSummary summary, ChangeSet changeSet,
-                                       String template, Path reportDir) throws IOException {
+                                       String template, Path reportDir, boolean reachableOnly) throws IOException {
         StringBuilder content = new StringBuilder();
 
         if (!changeSet.hasPreviousRun()) {
             content.append("<p class=\"stats\">First analysis run — no previous data to compare against.</p>\n");
         } else if (!changeSet.hasChanges()) {
             content.append("<p class=\"stats\">No changes detected since the last run.</p>\n");
+        } else if (reachableOnly) {
+            content.append("<h2>Changes to client-reachable APIs</h2>\n");
+            buildChangesSection(content, changeSet, summary, true);
         } else {
-            // Section 1: Changes across all dependencies
             content.append("<h2>Changes across all dependencies</h2>\n");
             buildChangesSection(content, changeSet, summary, false);
 
-            // Section 2: Changes to client-reachable APIs only
             content.append("<h2>Changes to client-reachable APIs</h2>\n");
             buildChangesSection(content, changeSet, summary, true);
         }
