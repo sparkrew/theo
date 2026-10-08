@@ -65,7 +65,7 @@ The `cve-check` goal runs the full analysis and then queries the OSV.dev API for
 
 ### CWE-based CVE categorization
 
-CVEs are placed under the same categories as sensitive APIs using CWE IDs. Each CVE/advisory includes CWE tags (e.g. CWE-22 for path traversal), and the mapping from CWE to Theo's categories comes directly from Table II of the [paper](https://arxiv.org/abs/2408.02846). This is deterministic and auditable — a CVE tagged CWE-78 goes under PROCESS/OPERATING_SYSTEM, CWE-918 under NETWORK/CONNECTION, etc. CVEs with CWEs not in the table, or with no CWE tags, are placed under OTHER.
+CVEs are placed under the same categories as sensitive APIs using CWE IDs. Each CVE/advisory includes CWE tags (e.g. CWE-22 for path traversal), and the mapping from CWE to Theo's categories comes directly from Table II of [the work by Rahman et al.](https://arxiv.org/abs/2408.02846). This is deterministic and auditable — a CVE tagged CWE-78 goes under PROCESS/OPERATING_SYSTEM, CWE-918 under NETWORK/CONNECTION, etc. CVEs with CWEs not in the table, or with no CWE tags, are placed under OTHER.
 
 ### Unaudited capability badges
 
