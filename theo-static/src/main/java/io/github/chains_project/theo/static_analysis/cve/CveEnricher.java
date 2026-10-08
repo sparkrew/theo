@@ -96,11 +96,14 @@ public class CveEnricher {
                     ));
                 }
 
-                // Replace occurrences of the GAV text in summary elements.
-                // The report generator wraps GAV in: <span class="dep-gav">GAV</span>
+                // Inject badges after every occurrence of this dependency's GAV span.
+                // A dependency can appear under multiple categories, so we replace all.
+                // To avoid doubling badges on repeated runs, check if badges are already there.
                 String gavMarker = "<span class=\"dep-gav\">" + escapeHtml(gav) + "</span>";
-                String gavWithBadges = gavMarker + badges.toString();
-                content = content.replace(gavMarker, gavWithBadges);
+                if (!content.contains(gavMarker + " <span class=\"cve-badge")) {
+                    String gavWithBadges = gavMarker + badges.toString();
+                    content = content.replace(gavMarker, gavWithBadges);
+                }
             }
 
             // Step 2: inject CVE summary blocks under each category header.
