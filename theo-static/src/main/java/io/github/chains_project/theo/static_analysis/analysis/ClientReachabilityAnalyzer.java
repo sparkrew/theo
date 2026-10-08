@@ -141,10 +141,23 @@ public class ClientReachabilityAnalyzer {
                                 String sensitiveApiName = formatMethodSignature(sensitiveMethod);
                                 reachableKeys.add(depGav + "::" + sensitiveApiName);
 
-                                // Determine access type: direct if the third-party method
-                                // is immediately followed by the sensitive API in the path
-                                boolean isDirect = firstThirdPartyIndex + 1 < path.size()
-                                        && path.get(firstThirdPartyIndex + 1).equals(sensitiveMethod);
+                                // Direct: the dependency reaches the sensitive API through
+                                // its own code only. Indirect: the path goes through a
+                                // different dependency before reaching the sensitive API.
+                                boolean isDirect = true;
+                                for (int j = firstThirdPartyIndex + 1; j < path.size() - 1; j++) {
+                                    MethodSignature intermediate = path.get(j);
+                                    String intermediatePkg = extractPackageName(
+                                            formatMethodSignature(intermediate), ignoredPrefixes);
+                                    if (intermediatePkg != null) {
+                                        String intermediateGav = PackageMatcher.getDependencyName(
+                                                intermediatePkg, packageMapPath);
+                                        if (intermediateGav != null && !intermediateGav.equals(depGav)) {
+                                            isDirect = false;
+                                            break;
+                                        }
+                                    }
+                                }
                                 String accessType = isDirect ? "DIRECT" : "INDIRECT";
 
                                 List<String> fullPath = path.stream()

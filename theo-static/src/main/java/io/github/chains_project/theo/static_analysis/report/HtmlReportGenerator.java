@@ -201,8 +201,13 @@ public class HtmlReportGenerator {
                     Map<String, List<SensitiveApiEntry>> byApi = groupBySensitiveApi(depEntry.getValue());
                     for (Map.Entry<String, List<SensitiveApiEntry>> apiGroup : byApi.entrySet()) {
                         content.append("  <details class=\"sensitive-api reachable\">\n");
-                        content.append("    <summary>").append(escapeHtml(apiGroup.getKey()))
-                            .append("</summary>\n");
+                        content.append("    <summary>").append(escapeHtml(apiGroup.getKey()));
+                        if (!apiGroup.getValue().isEmpty() && apiGroup.getValue().get(0).accessType() != null
+                                && !apiGroup.getValue().get(0).accessType().isEmpty()) {
+                            content.append(" <span class=\"access-type\">")
+                                .append(apiGroup.getValue().get(0).accessType()).append("</span>");
+                        }
+                        content.append("</summary>\n");
 
                         for (SensitiveApiEntry apiEntry : apiGroup.getValue()) {
                             buildPathDetails(content, apiEntry);
