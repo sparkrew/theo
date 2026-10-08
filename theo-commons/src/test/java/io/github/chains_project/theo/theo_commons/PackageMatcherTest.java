@@ -66,8 +66,7 @@ class PackageMatcherTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"java.", "javax.", "sun.", "jdk.", "jakarta.", "org.junit.",
-            "org.testng.", "org.eclipse.", "org.slf4j.", "org.apache.", "org.aspectj.", "com.sun."})
+    @ValueSource(strings = {"java.", "javax.", "sun.", "jdk.", "jakarta.", "com.sun."})
     void builtInIgnoredPrefixesPresent(String prefix) {
         Set<String> prefixes = PackageMatcher.loadIgnoredPrefixes("com.test");
         assertTrue(prefixes.contains(prefix),
