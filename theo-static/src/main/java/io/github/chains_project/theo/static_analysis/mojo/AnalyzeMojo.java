@@ -108,6 +108,10 @@ public class AnalyzeMojo extends AbstractMojo {
             return null;
         }
 
+        // Suppress SootUp's verbose warnings about unresolved methods.
+        // These are expected when analyzing incomplete classpaths and are not actionable.
+        System.setProperty("org.slf4j.simpleLogger.log.sootup", "error");
+
         try {
             Path mapPath = ensurePackageMap();
             Map<String, Set<String>> packageMap = loadPackageMap(mapPath);
