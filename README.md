@@ -86,7 +86,11 @@ When running `cve-check`, the reports are augmented with CVE badges (linked to a
 
 Analysis results are cached in `~/.theo/cache/` by default (configurable via `theo.cacheDir`). The cache survives `mvn clean` and avoids re-analyzing unchanged dependencies.
 
-The first run can take a few minutes to complete becuase it analyzes all the dependencies one by one, but the subsequent runs will be faster with caching. 
+The first run can take a few minutes to complete becuase it analyzes all the dependencies one by one, but the subsequent runs will be faster with caching.
+
+Change detection compares the current run against the previous one stored in the cache. For accurate diffs, use the same mode consistently. Switching between `reachableOnly` and full analysis between runs will produce misleading changes because the two summaries have different scopes.
+
+Like many other tools with caches, Theo also suffers from the age-old problem of cache invalidation. If you see any weird results between runs, please clear the cache and try again.
 
 ## Design
 

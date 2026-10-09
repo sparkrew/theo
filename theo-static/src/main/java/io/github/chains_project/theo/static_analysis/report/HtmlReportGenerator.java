@@ -312,10 +312,10 @@ public class HtmlReportGenerator {
             ? mod.addedApis().stream()
                 .filter(a -> summary.isReachable(mod.gav(), a.sensitiveApi())).toList()
             : mod.addedApis();
-        List<SensitiveApiEntry> removedApis = onlyReachable
-            ? mod.removedApis().stream()
-                .filter(a -> summary.isReachable(mod.gav(), a.sensitiveApi())).toList()
-            : mod.removedApis();
+        // Removed APIs are not filtered by reachability — they no longer exist
+        // in the current version, so they won't be in the current reachable set.
+        // If they were removed, that's worth reporting regardless.
+        List<SensitiveApiEntry> removedApis = mod.removedApis();
 
         if (addedApis.isEmpty() && removedApis.isEmpty()) return false;
 
