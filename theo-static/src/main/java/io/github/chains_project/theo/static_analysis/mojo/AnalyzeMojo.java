@@ -92,6 +92,9 @@ public class AnalyzeMojo extends AbstractMojo {
     @Parameter(defaultValue = "${settings.localRepository}", readonly = true)
     private String localRepository;
 
+    // Stored after runAnalysis so subclasses can access the change set
+    protected ChangeSet lastChangeSet;
+
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
         runAnalysis();
@@ -151,6 +154,7 @@ public class AnalyzeMojo extends AbstractMojo {
 
             ChangeDetector changeDetector = new ChangeDetector();
             ChangeSet changeSet = changeDetector.detectChanges(previousRun, summary);
+            lastChangeSet = changeSet;
 
             HtmlReportGenerator reportGen = new HtmlReportGenerator();
             reportGen.generateReports(summary, changeSet, reportDir.toPath(), reachableOnly);

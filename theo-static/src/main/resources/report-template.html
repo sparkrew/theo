@@ -47,6 +47,9 @@
         /* reachable section in changes report */
         .reachable-section { background: var(--highlight); padding: 4px; margin-top: 8px; }
 
+        /* version-changed deps get a left accent border to stand out */
+        .dependency.version-changed > summary { border-left: 3px solid var(--accent); padding-left: 4px; }
+
         /* change markers */
         .change-marker { font-weight: bold; margin-right: 2px; }
         .dependency.added > summary .change-marker { color: var(--success); }
@@ -132,6 +135,12 @@
         }
         .cve-badge a { color: inherit; text-decoration: none; }
         .cve-badge a:hover { text-decoration: underline; }
+        .cve-badge.resolved { border-color: var(--success); color: var(--success); text-decoration: line-through; }
+
+        /* CVE diff section in changes report */
+        .cve-diff { margin: 4px 0 4px 12px; font-size: 11px; }
+        .cve-resolved { color: var(--success); margin-bottom: 2px; }
+        .cve-added { margin-bottom: 2px; }
 
         /* unaudited capability badges — dotted border to distinguish from actual CVEs */
         .unaudited-badge {

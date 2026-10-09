@@ -254,7 +254,24 @@ public class HtmlReportGenerator {
                                      AnalysisSummary summary, boolean onlyReachable) {
         boolean anyChanges = false;
 
-        // Added dependencies — group their APIs by category/subcategory
+        // Version-changed dependencies first — these are the most important changes
+        List<ChangeSet.DependencyChange> versionChanged = changeSet.getModifiedDependencies().stream()
+            .filter(m -> !m.oldVersion().equals(m.newVersion()))
+            .toList();
+        List<ChangeSet.DependencyChange> sameVersion = changeSet.getModifiedDependencies().stream()
+            .filter(m -> m.oldVersion().equals(m.newVersion()))
+            .toList();
+
+        for (ChangeSet.DependencyChange mod : versionChanged) {
+            anyChanges |= renderModifiedDep(content, mod, summary, onlyReachable, true);
+        }
+
+        // Then same-version modifications (snapshot rebuilds, analyzer updates, etc.)
+        for (ChangeSet.DependencyChange mod : sameVersion) {
+            anyChanges |= renderModifiedDep(content, mod, summary, onlyReachable, false);
+        }
+
+        // Added dependencies
         for (DependencyReport added : changeSet.getAddedDependencies()) {
             List<SensitiveApiEntry> apis = onlyReachable
                 ? added.getSensitiveApis().stream()
@@ -265,41 +282,10 @@ public class HtmlReportGenerator {
             anyChanges = true;
             content.append("<details class=\"dependency added\">\n");
             content.append("  <summary><span class=\"change-marker\">+</span> <span class=\"dep-gav\">")
-                .append(escapeHtml(added.gav())).append("</span> (new)</summary>\n");
+                .append(escapeHtml(added.gav())).append("</span>")
+                .append(depMetaHtml(added))
+                .append(" (new)</summary>\n");
             buildCategorizedApiList(content, apis, "", onlyReachable);
-            content.append("</details>\n");
-        }
-
-        // Modified dependencies
-        for (ChangeSet.DependencyChange mod : changeSet.getModifiedDependencies()) {
-            List<SensitiveApiEntry> addedApis = onlyReachable
-                ? mod.addedApis().stream()
-                    .filter(a -> summary.isReachable(mod.gav(), a.sensitiveApi())).toList()
-                : mod.addedApis();
-            List<SensitiveApiEntry> removedApis = onlyReachable
-                ? mod.removedApis().stream()
-                    .filter(a -> summary.isReachable(mod.gav(), a.sensitiveApi())).toList()
-                : mod.removedApis();
-
-            if (addedApis.isEmpty() && removedApis.isEmpty()) continue;
-
-            anyChanges = true;
-            String versionChange = mod.oldVersion().equals(mod.newVersion()) ? ""
-                : " (" + mod.oldVersion() + " → " + mod.newVersion() + ")";
-
-            content.append("<details class=\"dependency modified\">\n");
-            content.append("  <summary><span class=\"change-marker\">~</span> <span class=\"dep-gav\">")
-                .append(escapeHtml(mod.gav())).append("</span>").append(escapeHtml(versionChange))
-                .append("</summary>\n");
-
-            if (!addedApis.isEmpty()) {
-                content.append("    <h3>Added</h3>\n");
-                buildCategorizedApiList(content, addedApis, "+ ", onlyReachable);
-            }
-            if (!removedApis.isEmpty()) {
-                content.append("    <h3>Removed</h3>\n");
-                buildCategorizedApiList(content, removedApis, "- ", onlyReachable);
-            }
             content.append("</details>\n");
         }
 
@@ -308,13 +294,59 @@ public class HtmlReportGenerator {
             anyChanges = true;
             content.append("<details class=\"dependency removed\">\n");
             content.append("  <summary><span class=\"change-marker\">-</span> <span class=\"dep-gav\">")
-                .append(escapeHtml(removed.gav())).append("</span> (removed)</summary>\n");
+                .append(escapeHtml(removed.gav())).append("</span>")
+                .append(depMetaHtml(removed))
+                .append(" (removed)</summary>\n");
             content.append("</details>\n");
         }
 
         if (!anyChanges) {
             content.append("<p class=\"no-changes\">No changes in this category.</p>\n");
         }
+    }
+
+    private boolean renderModifiedDep(StringBuilder content, ChangeSet.DependencyChange mod,
+                                       AnalysisSummary summary, boolean onlyReachable,
+                                       boolean versionChanged) {
+        List<SensitiveApiEntry> addedApis = onlyReachable
+            ? mod.addedApis().stream()
+                .filter(a -> summary.isReachable(mod.gav(), a.sensitiveApi())).toList()
+            : mod.addedApis();
+        List<SensitiveApiEntry> removedApis = onlyReachable
+            ? mod.removedApis().stream()
+                .filter(a -> summary.isReachable(mod.gav(), a.sensitiveApi())).toList()
+            : mod.removedApis();
+
+        if (addedApis.isEmpty() && removedApis.isEmpty()) return false;
+
+        String depClass = versionChanged ? "dependency modified version-changed" : "dependency modified";
+        String versionLabel = versionChanged
+            ? " (" + mod.oldVersion() + " → " + mod.newVersion() + ")"
+            : "";
+
+        // Look up scope/depth from the current summary
+        DependencyReport depReport = summary.getDependencyReports().stream()
+            .filter(d -> d.getGroupId().equals(mod.groupId()) && d.getArtifactId().equals(mod.artifactId()))
+            .findFirst().orElse(null);
+
+        content.append("<details class=\"").append(depClass).append("\">\n");
+        content.append("  <summary><span class=\"change-marker\">~</span> <span class=\"dep-gav\">")
+            .append(escapeHtml(mod.gav())).append("</span>");
+        if (depReport != null) {
+            content.append(depMetaHtml(depReport));
+        }
+        content.append(escapeHtml(versionLabel)).append("</summary>\n");
+
+        if (!addedApis.isEmpty()) {
+            content.append("    <h3>Added</h3>\n");
+            buildCategorizedApiList(content, addedApis, "+ ", onlyReachable);
+        }
+        if (!removedApis.isEmpty()) {
+            content.append("    <h3>Removed</h3>\n");
+            buildCategorizedApiList(content, removedApis, "- ", onlyReachable);
+        }
+        content.append("</details>\n");
+        return true;
     }
 
     /**

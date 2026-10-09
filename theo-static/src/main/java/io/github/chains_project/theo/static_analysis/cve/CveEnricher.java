@@ -1,5 +1,6 @@
 package io.github.chains_project.theo.static_analysis.cve;
 
+import io.github.chains_project.theo.static_analysis.model.ChangeSet;
 import io.github.chains_project.theo.static_analysis.model.DependencyReport;
 import io.github.chains_project.theo.static_analysis.model.SensitiveApiEntry;
 import org.slf4j.Logger;
@@ -206,6 +207,104 @@ public class CveEnricher {
             log.info("Added {} unaudited badges to {}.", replacements.size(), htmlFile.getFileName());
         } catch (IOException e) {
             log.warn("Could not add unaudited badges to {}: {}", htmlFile.getFileName(), e.getMessage());
+        }
+    }
+
+    /**
+     * For each version-changed dependency, queries OSV for the old version's CVEs
+     * and diffs them against the current version's CVEs. Injects added/removed CVE
+     * badges into the changes report next to the version-changed dependency.
+     */
+    public void enrichChangesWithCveDiff(ChangeSet changeSet, Map<String, List<CveResult>> currentCves, Path reportDir) {
+        OsvClient client = new OsvClient();
+        Path changesFile = reportDir.resolve("changes.html");
+        if (!Files.exists(changesFile)) return;
+
+        // Find version-changed dependencies
+        List<ChangeSet.DependencyChange> versionChanged = changeSet.getModifiedDependencies().stream()
+                .filter(m -> !m.oldVersion().equals(m.newVersion()))
+                .toList();
+
+        if (versionChanged.isEmpty()) return;
+
+        // Query OSV for the old versions
+        List<String[]> oldDeps = new ArrayList<>();
+        for (ChangeSet.DependencyChange mod : versionChanged) {
+            oldDeps.add(new String[]{mod.groupId(), mod.artifactId(), mod.oldVersion()});
+        }
+
+        log.info("Querying OSV.dev for CVEs in {} old dependency versions...", oldDeps.size());
+        Map<String, List<CveResult>> oldCves = client.queryBatch(oldDeps);
+
+        try {
+            String content = Files.readString(changesFile, StandardCharsets.UTF_8);
+
+            for (ChangeSet.DependencyChange mod : versionChanged) {
+                String oldGav = mod.groupId() + ":" + mod.artifactId() + ":" + mod.oldVersion();
+                String newGav = mod.gav();
+
+                Set<String> oldIds = new HashSet<>();
+                List<CveResult> oldList = oldCves.getOrDefault(oldGav, List.of());
+                for (CveResult c : oldList) oldIds.add(c.id());
+
+                Set<String> newIds = new HashSet<>();
+                List<CveResult> newList = currentCves.getOrDefault(newGav, List.of());
+                for (CveResult c : newList) newIds.add(c.id());
+
+                // CVEs added in the new version (not present in old)
+                List<CveResult> addedCves = newList.stream()
+                        .filter(c -> !oldIds.contains(c.id())).toList();
+                // CVEs resolved (present in old, gone in new)
+                List<CveResult> resolvedCves = oldList.stream()
+                        .filter(c -> !newIds.contains(c.id())).toList();
+
+                if (addedCves.isEmpty() && resolvedCves.isEmpty()) continue;
+
+                StringBuilder cveDiff = new StringBuilder();
+                cveDiff.append("\n    <div class=\"cve-diff\">\n");
+
+                if (!resolvedCves.isEmpty()) {
+                    cveDiff.append("      <div class=\"cve-resolved\">Resolved: ");
+                    for (CveResult cve : resolvedCves) {
+                        cveDiff.append("<span class=\"cve-badge resolved\"><a href=\"")
+                            .append(escapeHtml(cve.link())).append("\" target=\"_blank\">")
+                            .append(escapeHtml(cve.id())).append("</a></span> ");
+                    }
+                    cveDiff.append("</div>\n");
+                }
+
+                if (!addedCves.isEmpty()) {
+                    cveDiff.append("      <div class=\"cve-added\">New: ");
+                    for (CveResult cve : addedCves) {
+                        String label = cve.severity().isEmpty()
+                            ? escapeHtml(cve.id())
+                            : escapeHtml(cve.id()) + " (" + cve.severity() + ")";
+                        cveDiff.append("<span class=\"cve-badge\"><a href=\"")
+                            .append(escapeHtml(cve.link())).append("\" target=\"_blank\">")
+                            .append(label).append("</a></span> ");
+                    }
+                    cveDiff.append("</div>\n");
+                }
+
+                cveDiff.append("    </div>\n");
+
+                // Inject the CVE diff right after the dependency's summary line
+                String gavMarker = "<span class=\"dep-gav\">" + escapeHtml(newGav) + "</span>";
+                String summaryEnd = "</summary>";
+                int gavPos = content.indexOf(gavMarker);
+                if (gavPos >= 0) {
+                    int summaryEndPos = content.indexOf(summaryEnd, gavPos);
+                    if (summaryEndPos >= 0) {
+                        int insertPos = summaryEndPos + summaryEnd.length();
+                        content = content.substring(0, insertPos) + cveDiff + content.substring(insertPos);
+                    }
+                }
+            }
+
+            Files.writeString(changesFile, content, StandardCharsets.UTF_8);
+            log.info("Added CVE diff to changes report.");
+        } catch (IOException e) {
+            log.warn("Could not add CVE diff to changes report: {}", e.getMessage());
         }
     }
 

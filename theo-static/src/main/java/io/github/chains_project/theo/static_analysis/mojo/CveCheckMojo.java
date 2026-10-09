@@ -27,16 +27,18 @@ public class CveCheckMojo extends AnalyzeMojo {
 
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
-        // Run the full analysis first (preprocess, analyze deps, generate reports)
         AnalysisSummary summary = runAnalysis();
 
-        // POM modules are skipped by runAnalysis
         if (summary == null) return;
 
-        // Then enrich the reports with CVE data from OSV.dev
         CveEnricher enricher = new CveEnricher();
         Map<String, List<CveResult>> cveResults = enricher.enrichReports(
                 summary.getDependencyReports(), reportDir.toPath());
+
+        // For version-changed dependencies, diff CVEs between old and new versions
+        if (lastChangeSet != null) {
+            enricher.enrichChangesWithCveDiff(lastChangeSet, cveResults, reportDir.toPath());
+        }
 
         CliReporter cli = new CliReporter(getLog());
         cli.printCveSummary(cveResults, summary);
