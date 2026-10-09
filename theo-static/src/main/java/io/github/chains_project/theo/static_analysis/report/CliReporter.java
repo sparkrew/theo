@@ -186,13 +186,5 @@ public class CliReporter {
 
             lines.append("  ").append(entry.getKey()).append(" — ").append(cveList).append("\n");
         }
-
-        log.info("");
-        if (reachableVulns == 0) {
-            log.info("No known vulnerabilities found in reachable dependencies.");
-        } else {
-            log.info("Found " + reachableVulns + " vulnerabilities across " + reachableAffected + " reachable dependencies:");
-            log.info(lines.toString().stripTrailing());
-        }
     }
 }
