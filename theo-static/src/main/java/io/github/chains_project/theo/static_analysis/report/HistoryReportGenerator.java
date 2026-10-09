@@ -98,10 +98,26 @@ public class HistoryReportGenerator {
                 boolean firstApi = true;
 
                 for (String api : apis) {
-                    content.append("<tr>");
+                    // Check if this row has changes across snapshots — the API is
+                    // present in some but not others, or the access type differs.
+                    String key = depGa + "::" + api;
+                    boolean hasChanges = false;
+                    if (snapshotLookups.size() > 1) {
+                        boolean firstPresent = snapshotLookups.get(0).containsKey(key);
+                        String firstType = firstPresent ? snapshotLookups.get(0).get(key).accessType() : null;
+                        for (int si = 1; si < snapshotLookups.size(); si++) {
+                            boolean present = snapshotLookups.get(si).containsKey(key);
+                            String type = present ? snapshotLookups.get(si).get(key).accessType() : null;
+                            if (present != firstPresent || !Objects.equals(type, firstType)) {
+                                hasChanges = true;
+                                break;
+                            }
+                        }
+                    }
 
-                    // Show dep name only on the first row for that dep (rowspan would be
-                    // cleaner but adds complexity with dynamic row counts)
+                    String rowClass = hasChanges ? " class=\"row-changed\"" : "";
+                    content.append("<tr").append(rowClass).append(">");
+
                     if (firstApi) {
                         content.append("<td class=\"dep-cell\">").append(escapeHtml(depGa)).append("</td>");
                         firstApi = false;
@@ -111,8 +127,6 @@ public class HistoryReportGenerator {
 
                     content.append("<td class=\"api-cell\">").append(escapeHtml(api)).append("</td>");
 
-                    // One cell per snapshot
-                    String key = depGa + "::" + api;
                     for (Map<String, ReachableApiRecord> lookup : snapshotLookups) {
                         ReachableApiRecord rec = lookup.get(key);
                         if (rec == null) {
