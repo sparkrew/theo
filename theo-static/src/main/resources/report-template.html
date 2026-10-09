@@ -167,6 +167,20 @@
         .api-entry.removed { color: #cf222e; }
         .no-changes { color: #666; font-style: italic; font-size: 12px; margin: 4px 0; }
 
+        /* history table */
+        .table-wrapper { overflow-x: auto; margin-bottom: 8px; }
+        .history-table { border-collapse: collapse; font-size: 11px; width: 100%; }
+        .history-table th, .history-table td { border: 1px solid var(--border); padding: 2px 6px; text-align: center; }
+        .history-table th { background: #fafafa; font-size: 11px; font-weight: 600; }
+        .history-table .dep-cell { text-align: left; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; }
+        .history-table .dep-cell.continuation { border-top: none; }
+        .history-table .api-cell { text-align: left; font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 10px; }
+        .history-table .cell-direct { color: #33ccff; font-weight: 600; }
+        .history-table .cell-indirect { color: #888; }
+        .history-table .empty-cell { background: #f9f9f9; }
+        .history-table .dep-ver { font-size: 9px; color: #aaa; }
+        .snapshot-date { font-size: 9px; color: #999; font-weight: normal; }
+
         footer { margin-top: 10px; font-size: 10px; color: #999; border-top: 1px solid var(--border); padding-top: 4px; }
     </style>
 </head>

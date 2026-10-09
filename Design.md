@@ -118,6 +118,14 @@ Maven SNAPSHOT versions are mutable -- the same version string can refer to diff
 - `report.json` contains the `DependencyReport` for a single dependency: its GAV, the list of sensitive API entries (each with access type, entry point, and full call path), and whether it has any sensitive APIs.
 - `last-run.json` contains the complete `AnalysisSummary` from the most recent analysis of a project, used by `ChangeDetector` to produce the changes report. The project version is excluded from the cache path so that version bumps still compare against the previous run.
 
+## Snapshot history
+
+Snapshots are lightweight records of which sensitive APIs were reachable at a specific point in time. They are stored in `~/.theo/history/{groupId}__{artifactId}/` as timestamped JSON files. Each snapshot contains only a list of `ReachableApiRecord` entries (dep GAV, API name, access type, category) — intentionally small so many snapshots can accumulate without disk concerns.
+
+The `snapshot` goal saves the current analysis, auto-generating a label from the project version with a sequence number (`v1.0-SNAPSHOT-1`, `v1.0-SNAPSHOT-2`). The `history` goal renders all snapshots into a table grouped by category, with dependency versions shown per cell. The `compareWith` parameter lets the changes report diff against a historical snapshot instead of the automatic last-run.
+
+Snapshots always store only reachable APIs regardless of the analysis mode, making them comparable across `reachableOnly` and full analysis runs.
+
 ## Extending
 
 To add new sensitive APIs, edit `theo-commons/src/main/resources/sensitive_apis.json`. Each entry requires:

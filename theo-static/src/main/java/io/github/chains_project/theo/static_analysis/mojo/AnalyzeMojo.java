@@ -8,6 +8,8 @@ import io.github.chains_project.theo.static_analysis.analysis.ClientReachability
 import io.github.chains_project.theo.static_analysis.analysis.DependencyAnalyzer;
 import io.github.chains_project.theo.static_analysis.analysis.PackageMapBuilder;
 import io.github.chains_project.theo.static_analysis.cache.CacheManager;
+import io.github.chains_project.theo.static_analysis.cache.SnapshotManager;
+import io.github.chains_project.theo.static_analysis.model.ReachableSnapshot;
 import io.github.chains_project.theo.static_analysis.model.AnalysisSummary;
 import io.github.chains_project.theo.static_analysis.model.ChangeSet;
 import io.github.chains_project.theo.static_analysis.report.CliReporter;
@@ -88,6 +90,14 @@ public class AnalyzeMojo extends AbstractMojo {
     @Parameter(property = "theo.reachableOnly", defaultValue = "false")
     private boolean reachableOnly;
 
+    /** History folder for snapshots. */
+    @Parameter(property = "theo.historyDir", defaultValue = "${user.home}/.theo/history")
+    private File historyDir;
+
+    /** Compare against the Nth most recent snapshot instead of last-run. 0 = use last-run (default). */
+    @Parameter(property = "theo.compareWith", defaultValue = "0")
+    private int compareWith;
+
     /** Local Maven repository path, used to resolve the analyzer jar when no explicit path is given. */
     @Parameter(defaultValue = "${settings.localRepository}", readonly = true)
     private String localRepository;
@@ -125,9 +135,23 @@ public class AnalyzeMojo extends AbstractMojo {
             String projectJarPath = findProjectJar();
             List<String> pkgNames = parsePackageNames(packageNames);
 
-            // Load previous run before analysis overwrites it
-            AnalysisSummary previousRun = cache.loadLastRun(
-                    project.getGroupId(), project.getArtifactId());
+            // Load previous run for change detection. If compareWith is set,
+            // use a historical snapshot instead of the automatic last-run.
+            AnalysisSummary previousRun;
+            if (compareWith > 0) {
+                SnapshotManager snapMgr = new SnapshotManager(
+                        historyDir.toPath(), project.getGroupId(), project.getArtifactId());
+                ReachableSnapshot snapshot = snapMgr.loadSnapshot(compareWith);
+                if (snapshot != null) {
+                    getLog().info("Comparing against snapshot '" + snapshot.getLabel() + "'");
+                    previousRun = SnapshotManager.toAnalysisSummary(snapshot);
+                } else {
+                    getLog().warn("Snapshot #" + compareWith + " not found, falling back to last run");
+                    previousRun = cache.loadLastRun(project.getGroupId(), project.getArtifactId());
+                }
+            } else {
+                previousRun = cache.loadLastRun(project.getGroupId(), project.getArtifactId());
+            }
 
             AnalysisSummary summary;
 
