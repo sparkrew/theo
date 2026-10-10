@@ -1,10 +1,9 @@
 package io.github.chains_project.theo.static_analysis.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -27,6 +26,14 @@ public class AnalysisSummary {
      */
     private Set<String> reachableSensitiveApis;
     private long analyzedAt;
+
+    /**
+     * Client-rooted reachable entries keyed by dep GAV, with full call paths
+     * starting from the client project's methods. Not persisted to cache —
+     * only populated for the current run's report generation.
+     */
+    @JsonIgnore
+    private Map<String, List<SensitiveApiEntry>> reachableEntries;
 
     /** Required by Jackson for deserialization. */
     public AnalysisSummary() {
@@ -110,5 +117,18 @@ public class AnalysisSummary {
 
     public void setAnalyzedAt(long analyzedAt) {
         this.analyzedAt = analyzedAt;
+    }
+
+    @JsonIgnore
+    public Map<String, List<SensitiveApiEntry>> getReachableEntries() {
+        return reachableEntries;
+    }
+
+    public void setReachableEntries(Map<String, List<SensitiveApiEntry>> reachableEntries) {
+        this.reachableEntries = reachableEntries;
+    }
+
+    public boolean hasReachableEntries() {
+        return reachableEntries != null && !reachableEntries.isEmpty();
     }
 }

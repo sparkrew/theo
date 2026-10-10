@@ -285,7 +285,7 @@ public class HtmlReportGenerator {
                 .append(escapeHtml(added.gav())).append("</span>")
                 .append(depMetaHtml(added))
                 .append(" (new)</summary>\n");
-            buildCategorizedApiList(content, apis, "", onlyReachable);
+            buildCategorizedApiList(content, apis, "", onlyReachable && summary.hasReachableEntries());
             content.append("</details>\n");
         }
 
@@ -339,11 +339,11 @@ public class HtmlReportGenerator {
 
         if (!addedApis.isEmpty()) {
             content.append("    <h3>Added</h3>\n");
-            buildCategorizedApiList(content, addedApis, "+ ", onlyReachable);
+            buildCategorizedApiList(content, addedApis, "+ ", onlyReachable && summary.hasReachableEntries());
         }
         if (!removedApis.isEmpty()) {
             content.append("    <h3>Removed</h3>\n");
-            buildCategorizedApiList(content, removedApis, "- ", onlyReachable);
+            buildCategorizedApiList(content, removedApis, "- ", onlyReachable && summary.hasReachableEntries());
         }
         content.append("</details>\n");
         return true;

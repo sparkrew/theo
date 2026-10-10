@@ -93,17 +93,15 @@ public class AnalysisOrchestrator {
                 cachedCount, dependencies.size() - cachedCount);
 
         // Step 2: Run client reachability analysis
-        // This finds which dependency sensitive APIs are actually reachable
-        // from the client code by walking the project's call graph.
+        // Uses findReachableEntries to get both the reachable keys and the full
+        // client-rooted entries (with paths starting from client methods).
         log.info("Running client reachability analysis on {}", projectJarPath);
-        Set<String> rawReachable = reachabilityAnalyzer.findReachableSensitiveApis(
+        Map<String, List<SensitiveApiEntry>> rawEntries = reachabilityAnalyzer.findReachableEntries(
                 projectJarPath, packageNames, packageMapPath, depsDir
         );
-        log.info("Found {} reachable sensitive APIs from client code", rawReachable.size());
 
-        // PackageMatcher returns keys as "groupId.artifactId:version::api" but
-        // DependencyReport.gav() uses "groupId:artifactId:version". Normalize
-        // the keys so isReachable() lookups match.
+        // Normalize the keys from PackageMatcher format (groupId.artifactId:version)
+        // to DependencyReport.gav() format (groupId:artifactId:version).
         Map<String, String> depKeyMapping = new HashMap<>();
         for (DependencyReport dep : reports) {
             String matcherFormat = dep.getGroupId() + "." + dep.getArtifactId() + ":" + dep.getVersion();
@@ -111,25 +109,24 @@ public class AnalysisOrchestrator {
         }
 
         Set<String> reachable = new HashSet<>();
-        for (String key : rawReachable) {
-            int separator = key.indexOf("::");
-            if (separator < 0) continue;
-            String depPart = key.substring(0, separator);
-            String apiPart = key.substring(separator + 2);
-            String normalizedGav = depKeyMapping.get(depPart);
+        Map<String, List<SensitiveApiEntry>> normalizedEntries = new HashMap<>();
+        for (Map.Entry<String, List<SensitiveApiEntry>> entry : rawEntries.entrySet()) {
+            String normalizedGav = depKeyMapping.get(entry.getKey());
             if (normalizedGav != null) {
-                reachable.add(normalizedGav + "::" + apiPart);
-            } else {
-                // Keep the original if we can't map it
-                reachable.add(key);
+                normalizedEntries.put(normalizedGav, entry.getValue());
+                for (SensitiveApiEntry api : entry.getValue()) {
+                    reachable.add(normalizedGav + "::" + api.sensitiveApi());
+                }
             }
         }
+        log.info("Found {} reachable sensitive APIs from client code", reachable.size());
 
         // Step 3: Merge into AnalysisSummary
         AnalysisSummary summary = new AnalysisSummary(
                 projectGroupId, projectArtifactId, projectVersion,
                 reports, reachable, System.currentTimeMillis()
         );
+        summary.setReachableEntries(normalizedEntries);
 
         // Step 4: Cache this run for future change detection
         cacheManager.storeLastRun(summary);
@@ -223,10 +220,20 @@ public class AnalysisOrchestrator {
             }
         }
 
+        // In reachableOnly mode, the DependencyReport entries ARE the client-rooted
+        // entries, so we use them directly as reachableEntries too.
+        Map<String, List<SensitiveApiEntry>> reachableEntryMap = new HashMap<>();
+        for (DependencyReport report : reports) {
+            if (report.hasSensitiveApis()) {
+                reachableEntryMap.put(report.gav(), report.getSensitiveApis());
+            }
+        }
+
         AnalysisSummary summary = new AnalysisSummary(
                 projectGroupId, projectArtifactId, projectVersion,
                 reports, reachableKeys, System.currentTimeMillis()
         );
+        summary.setReachableEntries(reachableEntryMap);
 
         cacheManager.storeLastRun(summary);
         return summary;
