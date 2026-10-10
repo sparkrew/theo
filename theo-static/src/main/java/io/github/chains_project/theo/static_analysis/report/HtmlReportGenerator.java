@@ -342,8 +342,10 @@ public class HtmlReportGenerator {
             buildCategorizedApiList(content, addedApis, "+ ", onlyReachable && summary.hasReachableEntries());
         }
         if (!removedApis.isEmpty()) {
+            // Removed APIs come from the previous run's per-dep data, so they
+            // don't have client-rooted paths. Show them as a flat list.
             content.append("    <h3>Removed</h3>\n");
-            buildCategorizedApiList(content, removedApis, "- ", onlyReachable && summary.hasReachableEntries());
+            buildCategorizedApiList(content, removedApis, "- ", false);
         }
         content.append("</details>\n");
         return true;
@@ -382,11 +384,10 @@ public class HtmlReportGenerator {
                 content.append("    <h3 class=\"subcategory-header\" style=\"margin-left:16px\">").append(escapeHtml(subEntry.getKey())).append("</h3>\n");
 
                 for (SensitiveApiEntry entry : subEntry.getValue()) {
-                    String cssClass = prefix.startsWith("+") ? " class=\"added\"" : prefix.startsWith("-") ? " class=\"removed\"" : "";
+                    String changeType = prefix.startsWith("+") ? " added" : prefix.startsWith("-") ? " removed" : "";
 
                     if (showPaths) {
-                        // Show expandable path for changed reachable APIs
-                        content.append("    <details class=\"sensitive-api\"").append(cssClass).append(">\n");
+                        content.append("    <details class=\"sensitive-api").append(changeType).append("\">\n");
                         content.append("      <summary>").append(escapeHtml(prefix))
                             .append(escapeHtml(entry.sensitiveApi()))
                             .append(accessTypeSpan(entry.accessType()))
@@ -394,8 +395,7 @@ public class HtmlReportGenerator {
                         buildPathDetails(content, entry);
                         content.append("    </details>\n");
                     } else {
-                        // Simple list item without path details
-                        content.append("    <div class=\"api-entry").append(cssClass.replace(" class=\"", " ").replace("\"", ""))
+                        content.append("    <div class=\"api-entry").append(changeType)
                             .append("\">").append(escapeHtml(prefix)).append(escapeHtml(entry.sensitiveApi()))
                             .append(accessTypeSpan(entry.accessType()))
                             .append("</div>\n");
