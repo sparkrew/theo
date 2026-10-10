@@ -95,6 +95,10 @@ To track how reachable sensitive APIs evolve over time, save snapshots after ana
 ```
 mvn theo-static:analyze -Dtheo.packageNames=com.example.app
 mvn theo-static:snapshot
+```
+
+By default snapshots will be named according to the project version. A custom name can be passed with the flag `snapshotLabel` as given below.
+```
 mvn theo-static:snapshot -Dtheo.snapshotLabel=v2.3.0-release
 ```
 
