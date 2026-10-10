@@ -96,10 +96,34 @@ public class AnalysisOrchestrator {
         // This finds which dependency sensitive APIs are actually reachable
         // from the client code by walking the project's call graph.
         log.info("Running client reachability analysis on {}", projectJarPath);
-        Set<String> reachable = reachabilityAnalyzer.findReachableSensitiveApis(
+        Set<String> rawReachable = reachabilityAnalyzer.findReachableSensitiveApis(
                 projectJarPath, packageNames, packageMapPath, depsDir
         );
-        log.info("Found {} reachable sensitive APIs from client code", reachable.size());
+        log.info("Found {} reachable sensitive APIs from client code", rawReachable.size());
+
+        // PackageMatcher returns keys as "groupId.artifactId:version::api" but
+        // DependencyReport.gav() uses "groupId:artifactId:version". Normalize
+        // the keys so isReachable() lookups match.
+        Map<String, String> depKeyMapping = new HashMap<>();
+        for (DependencyReport dep : reports) {
+            String matcherFormat = dep.getGroupId() + "." + dep.getArtifactId() + ":" + dep.getVersion();
+            depKeyMapping.put(matcherFormat, dep.gav());
+        }
+
+        Set<String> reachable = new HashSet<>();
+        for (String key : rawReachable) {
+            int separator = key.indexOf("::");
+            if (separator < 0) continue;
+            String depPart = key.substring(0, separator);
+            String apiPart = key.substring(separator + 2);
+            String normalizedGav = depKeyMapping.get(depPart);
+            if (normalizedGav != null) {
+                reachable.add(normalizedGav + "::" + apiPart);
+            } else {
+                // Keep the original if we can't map it
+                reachable.add(key);
+            }
+        }
 
         // Step 3: Merge into AnalysisSummary
         AnalysisSummary summary = new AnalysisSummary(
