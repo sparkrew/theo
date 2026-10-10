@@ -181,7 +181,7 @@ public class AnalyzeMojo extends AbstractMojo {
             lastChangeSet = changeSet;
 
             HtmlReportGenerator reportGen = new HtmlReportGenerator();
-            reportGen.generateReports(summary, changeSet, reportDir.toPath(), reachableOnly);
+            reportGen.generateReports(summary, changeSet, reportDir.toPath(), reachableOnly, previousRun);
 
             CliReporter cli = new CliReporter(getLog());
             cli.printSummary(summary, changeSet, reportDir.toPath(), verbose);

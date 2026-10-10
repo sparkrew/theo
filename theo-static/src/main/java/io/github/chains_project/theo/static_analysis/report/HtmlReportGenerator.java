@@ -32,17 +32,27 @@ public class HtmlReportGenerator {
      * Generates all three HTML reports.
      */
     public void generateReports(AnalysisSummary summary, ChangeSet changeSet, Path reportDir) throws IOException {
-        generateReports(summary, changeSet, reportDir, false);
+        generateReports(summary, changeSet, reportDir, false, null);
     }
 
     public void generateReports(AnalysisSummary summary, ChangeSet changeSet,
                                 Path reportDir, boolean reachableOnly) throws IOException {
+        generateReports(summary, changeSet, reportDir, reachableOnly, null);
+    }
+
+    /**
+     * @param previousSummary the previous analysis run, used to check whether removed
+     *                        APIs were reachable before. Null on first run.
+     */
+    public void generateReports(AnalysisSummary summary, ChangeSet changeSet,
+                                Path reportDir, boolean reachableOnly,
+                                AnalysisSummary previousSummary) throws IOException {
         Files.createDirectories(reportDir);
 
         String template = loadTemplate();
 
         generateReachableReport(summary, template, reportDir);
-        generateChangesReport(summary, changeSet, template, reportDir, reachableOnly);
+        generateChangesReport(summary, changeSet, template, reportDir, reachableOnly, previousSummary);
 
         if (!reachableOnly) {
             generateAllDependenciesReport(summary, template, reportDir);
@@ -224,7 +234,8 @@ public class HtmlReportGenerator {
     // --- changes.html ---
 
     private void generateChangesReport(AnalysisSummary summary, ChangeSet changeSet,
-                                       String template, Path reportDir, boolean reachableOnly) throws IOException {
+                                       String template, Path reportDir, boolean reachableOnly,
+                                       AnalysisSummary previousSummary) throws IOException {
         StringBuilder content = new StringBuilder();
 
         if (!changeSet.hasPreviousRun()) {
@@ -234,15 +245,15 @@ public class HtmlReportGenerator {
         } else if (reachableOnly) {
             content.append("<div class=\"reachable-section\">\n");
             content.append("<h2>Changes to client-reachable APIs</h2>\n");
-            buildChangesSection(content, changeSet, summary, true);
+            buildChangesSection(content, changeSet, summary, true, previousSummary);
             content.append("</div>\n");
         } else {
             content.append("<h2>Changes across all dependencies</h2>\n");
-            buildChangesSection(content, changeSet, summary, false);
+            buildChangesSection(content, changeSet, summary, false, previousSummary);
 
             content.append("<div class=\"reachable-section\">\n");
             content.append("<h2>Changes to client-reachable APIs</h2>\n");
-            buildChangesSection(content, changeSet, summary, true);
+            buildChangesSection(content, changeSet, summary, true, previousSummary);
             content.append("</div>\n");
         }
 
@@ -251,7 +262,8 @@ public class HtmlReportGenerator {
     }
 
     private void buildChangesSection(StringBuilder content, ChangeSet changeSet,
-                                     AnalysisSummary summary, boolean onlyReachable) {
+                                     AnalysisSummary summary, boolean onlyReachable,
+                                     AnalysisSummary previousSummary) {
         boolean anyChanges = false;
 
         // Version-changed dependencies first — these are the most important changes
@@ -263,12 +275,12 @@ public class HtmlReportGenerator {
             .toList();
 
         for (ChangeSet.DependencyChange mod : versionChanged) {
-            anyChanges |= renderModifiedDep(content, mod, summary, onlyReachable, true);
+            anyChanges |= renderModifiedDep(content, mod, summary, onlyReachable, true, previousSummary);
         }
 
         // Then same-version modifications (snapshot rebuilds, analyzer updates, etc.)
         for (ChangeSet.DependencyChange mod : sameVersion) {
-            anyChanges |= renderModifiedDep(content, mod, summary, onlyReachable, false);
+            anyChanges |= renderModifiedDep(content, mod, summary, onlyReachable, false, previousSummary);
         }
 
         // Added dependencies
@@ -289,8 +301,16 @@ public class HtmlReportGenerator {
             content.append("</details>\n");
         }
 
-        // Removed dependencies
+        // Removed dependencies — in reachable mode, only show if they had
+        // reachable APIs in the previous run
         for (DependencyReport removed : changeSet.getRemovedDependencies()) {
+            if (onlyReachable) {
+                if (previousSummary == null) continue;
+                boolean wasReachable = removed.getSensitiveApis().stream()
+                    .anyMatch(a -> previousSummary.isReachable(removed.gav(), a.sensitiveApi()));
+                if (!wasReachable) continue;
+            }
+
             anyChanges = true;
             content.append("<details class=\"dependency removed\">\n");
             content.append("  <summary><span class=\"change-marker\">-</span> <span class=\"dep-gav\">")
@@ -307,15 +327,23 @@ public class HtmlReportGenerator {
 
     private boolean renderModifiedDep(StringBuilder content, ChangeSet.DependencyChange mod,
                                        AnalysisSummary summary, boolean onlyReachable,
-                                       boolean versionChanged) {
+                                       boolean versionChanged, AnalysisSummary previousSummary) {
         List<SensitiveApiEntry> addedApis = onlyReachable
             ? mod.addedApis().stream()
                 .filter(a -> summary.isReachable(mod.gav(), a.sensitiveApi())).toList()
             : mod.addedApis();
-        // Removed APIs are not filtered by reachability — they no longer exist
-        // in the current version, so they won't be in the current reachable set.
-        // If they were removed, that's worth reporting regardless.
-        List<SensitiveApiEntry> removedApis = mod.removedApis();
+        // Removed APIs can't be checked against the current reachable set (they
+        // no longer exist). In reachable mode, check the previous run's
+        // reachability data instead — only show APIs that were actually reachable.
+        List<SensitiveApiEntry> removedApis;
+        if (onlyReachable && previousSummary != null) {
+            String prevGav = mod.groupId() + ":" + mod.artifactId() + ":" + mod.oldVersion();
+            removedApis = mod.removedApis().stream()
+                .filter(a -> previousSummary.isReachable(prevGav, a.sensitiveApi()))
+                .toList();
+        } else {
+            removedApis = mod.removedApis();
+        }
 
         if (addedApis.isEmpty() && removedApis.isEmpty()) return false;
 
