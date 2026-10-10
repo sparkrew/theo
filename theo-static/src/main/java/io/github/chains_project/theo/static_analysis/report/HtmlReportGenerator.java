@@ -99,6 +99,14 @@ public class HtmlReportGenerator {
             grouped.put(cat, new TreeMap<>());
         }
 
+        // Per-category stats: total unique APIs vs reachable unique APIs
+        Map<String, Set<String>> totalApisByCategory = new LinkedHashMap<>();
+        Map<String, Set<String>> reachableApisByCategory = new LinkedHashMap<>();
+        for (String cat : CATEGORY_ORDER) {
+            totalApisByCategory.put(cat, new HashSet<>());
+            reachableApisByCategory.put(cat, new HashSet<>());
+        }
+
         for (DependencyReport dep : summary.getDependencyReports()) {
             if (!dep.hasSensitiveApis()) continue;
             for (SensitiveApiEntry entry : dep.getSensitiveApis()) {
@@ -108,8 +116,16 @@ public class HtmlReportGenerator {
                     .computeIfAbsent(sub, k -> new TreeMap<>())
                     .computeIfAbsent(dep.gav(), k -> new TreeMap<>())
                     .putIfAbsent(entry.sensitiveApi(), entry.accessType());
+
+                String apiKey = dep.gav() + "::" + entry.sensitiveApi();
+                totalApisByCategory.computeIfAbsent(cat, k -> new HashSet<>()).add(apiKey);
+                if (summary.isReachable(dep.gav(), entry.sensitiveApi())) {
+                    reachableApisByCategory.computeIfAbsent(cat, k -> new HashSet<>()).add(apiKey);
+                }
             }
         }
+
+        buildAllDepsStatsTable(content, totalApisByCategory, reachableApisByCategory);
 
         for (String category : CATEGORY_ORDER) {
             Map<String, Map<String, Map<String, String>>> subcategories = grouped.get(category);
@@ -175,6 +191,14 @@ public class HtmlReportGenerator {
             grouped.put(cat, new TreeMap<>());
         }
 
+        // Per-category stats: unique API names and unique dep GAVs
+        Map<String, Set<String>> apisByCategory = new LinkedHashMap<>();
+        Map<String, Set<String>> depsByCategory = new LinkedHashMap<>();
+        for (String cat : CATEGORY_ORDER) {
+            apisByCategory.put(cat, new HashSet<>());
+            depsByCategory.put(cat, new HashSet<>());
+        }
+
         for (DependencyReport dep : reachableDeps) {
             for (SensitiveApiEntry entry : dep.getSensitiveApis()) {
                 if (!summary.isReachable(dep.gav(), entry.sensitiveApi())) continue;
@@ -184,8 +208,12 @@ public class HtmlReportGenerator {
                     .computeIfAbsent(sub, k -> new TreeMap<>())
                     .computeIfAbsent(dep.gav(), k -> new ArrayList<>())
                     .add(entry);
+                apisByCategory.computeIfAbsent(cat, k -> new HashSet<>()).add(entry.sensitiveApi());
+                depsByCategory.computeIfAbsent(cat, k -> new HashSet<>()).add(dep.gav());
             }
         }
+
+        buildCategoryStatsTable(content, apisByCategory, depsByCategory);
 
         for (String category : CATEGORY_ORDER) {
             Map<String, Map<String, List<SensitiveApiEntry>>> subcategories = grouped.get(category);
@@ -264,6 +292,14 @@ public class HtmlReportGenerator {
     private void buildChangesSection(StringBuilder content, ChangeSet changeSet,
                                      AnalysisSummary summary, boolean onlyReachable,
                                      AnalysisSummary previousSummary) {
+        // Collect per-category stats before rendering the details
+        Map<String, Integer> addedByCategory = new LinkedHashMap<>();
+        Map<String, Integer> removedByCategory = new LinkedHashMap<>();
+        Map<String, Set<String>> changedDepsByCategory = new LinkedHashMap<>();
+        collectChangesStats(changeSet, summary, onlyReachable, previousSummary,
+            addedByCategory, removedByCategory, changedDepsByCategory);
+        buildChangesStatsTable(content, addedByCategory, removedByCategory, changedDepsByCategory);
+
         boolean anyChanges = false;
 
         // Version-changed dependencies first — these are the most important changes
@@ -494,6 +530,161 @@ public class HtmlReportGenerator {
             sb.append(" <span class=\"dep-meta\">").append(String.join(", ", parts)).append("</span>");
         }
         return sb.toString();
+    }
+
+    /**
+     * Counts added/removed APIs and affected deps per category for the changes stats table.
+     * Uses the same filtering logic as buildChangesSection so the numbers match the report.
+     */
+    private void collectChangesStats(ChangeSet changeSet, AnalysisSummary summary,
+                                      boolean onlyReachable, AnalysisSummary previousSummary,
+                                      Map<String, Integer> addedByCategory,
+                                      Map<String, Integer> removedByCategory,
+                                      Map<String, Set<String>> changedDepsByCategory) {
+        Set<String> seenAdded = new HashSet<>();
+        Set<String> seenRemoved = new HashSet<>();
+
+        for (ChangeSet.DependencyChange mod : changeSet.getModifiedDependencies()) {
+            List<SensitiveApiEntry> addedApis = onlyReachable
+                ? mod.addedApis().stream()
+                    .filter(a -> summary.isReachable(mod.gav(), a.sensitiveApi())).toList()
+                : mod.addedApis();
+
+            List<SensitiveApiEntry> removedApis;
+            if (onlyReachable && previousSummary != null) {
+                String prevGav = mod.groupId() + ":" + mod.artifactId() + ":" + mod.oldVersion();
+                removedApis = mod.removedApis().stream()
+                    .filter(a -> previousSummary.isReachable(prevGav, a.sensitiveApi())).toList();
+            } else {
+                removedApis = mod.removedApis();
+            }
+
+            String ga = mod.groupId() + ":" + mod.artifactId();
+            countEntriesByCategory(addedApis, seenAdded, addedByCategory, changedDepsByCategory, ga);
+            countEntriesByCategory(removedApis, seenRemoved, removedByCategory, changedDepsByCategory, ga);
+        }
+
+        for (DependencyReport added : changeSet.getAddedDependencies()) {
+            List<SensitiveApiEntry> apis = onlyReachable
+                ? added.getSensitiveApis().stream()
+                    .filter(a -> summary.isReachable(added.gav(), a.sensitiveApi())).toList()
+                : added.getSensitiveApis();
+            String ga = added.getGroupId() + ":" + added.getArtifactId();
+            countEntriesByCategory(apis, seenAdded, addedByCategory, changedDepsByCategory, ga);
+        }
+
+        for (DependencyReport removed : changeSet.getRemovedDependencies()) {
+            if (onlyReachable) {
+                if (previousSummary == null) continue;
+                boolean wasReachable = removed.getSensitiveApis().stream()
+                    .anyMatch(a -> previousSummary.isReachable(removed.gav(), a.sensitiveApi()));
+                if (!wasReachable) continue;
+            }
+            List<SensitiveApiEntry> apis = removed.getSensitiveApis();
+            String ga = removed.getGroupId() + ":" + removed.getArtifactId();
+            countEntriesByCategory(apis, seenRemoved, removedByCategory, changedDepsByCategory, ga);
+        }
+    }
+
+    private void countEntriesByCategory(List<SensitiveApiEntry> entries, Set<String> seen,
+                                         Map<String, Integer> countMap,
+                                         Map<String, Set<String>> depMap, String depGa) {
+        for (SensitiveApiEntry entry : entries) {
+            if (!seen.add(entry.sensitiveApi())) continue;
+            String cat = (entry.category() == null || entry.category().isBlank()) ? "OTHER" : entry.category().toUpperCase();
+            countMap.merge(cat, 1, Integer::sum);
+            depMap.computeIfAbsent(cat, k -> new HashSet<>()).add(depGa);
+        }
+    }
+
+    /**
+     * Renders a compact table showing reachable/total API ratio per category.
+     */
+    private void buildAllDepsStatsTable(StringBuilder content,
+                                         Map<String, Set<String>> totalApisByCategory,
+                                         Map<String, Set<String>> reachableApisByCategory) {
+        boolean hasAny = totalApisByCategory.values().stream().anyMatch(s -> !s.isEmpty());
+        if (!hasAny) return;
+
+        content.append("<table class=\"stats-table\">\n");
+        content.append("<tr><th></th><th>Reachable</th><th>Total</th></tr>\n");
+        int grandReachable = 0, grandTotal = 0;
+        for (String cat : CATEGORY_ORDER) {
+            int total = totalApisByCategory.getOrDefault(cat, Set.of()).size();
+            int reachable = reachableApisByCategory.getOrDefault(cat, Set.of()).size();
+            if (total == 0) continue;
+            grandReachable += reachable;
+            grandTotal += total;
+            content.append("<tr><th>").append(escapeHtml(cat)).append("</th>")
+                .append("<td class=\"num\">").append(reachable).append("</td>")
+                .append("<td class=\"num\">").append(total).append("</td></tr>\n");
+        }
+        content.append("<tr><th>Total</th>")
+            .append("<td class=\"num\">").append(grandReachable).append("</td>")
+            .append("<td class=\"num\">").append(grandTotal).append("</td></tr>\n");
+        content.append("</table>\n");
+    }
+
+    /**
+     * Renders a compact table showing API count and dep count per category.
+     */
+    private void buildCategoryStatsTable(StringBuilder content,
+                                          Map<String, Set<String>> apisByCategory,
+                                          Map<String, Set<String>> depsByCategory) {
+        boolean hasAny = apisByCategory.values().stream().anyMatch(s -> !s.isEmpty());
+        if (!hasAny) return;
+
+        content.append("<table class=\"stats-table\">\n");
+        content.append("<tr><th></th><th>APIs</th><th>Deps</th></tr>\n");
+        int totalApis = 0, totalDeps = 0;
+        for (String cat : CATEGORY_ORDER) {
+            int apis = apisByCategory.getOrDefault(cat, Set.of()).size();
+            int deps = depsByCategory.getOrDefault(cat, Set.of()).size();
+            if (apis == 0) continue;
+            totalApis += apis;
+            totalDeps += deps;
+            content.append("<tr><th>").append(escapeHtml(cat)).append("</th>")
+                .append("<td class=\"num\">").append(apis).append("</td>")
+                .append("<td class=\"num\">").append(deps).append("</td></tr>\n");
+        }
+        content.append("<tr><th>Total</th>")
+            .append("<td class=\"num\">").append(totalApis).append("</td>")
+            .append("<td class=\"num\">").append(totalDeps).append("</td></tr>\n");
+        content.append("</table>\n");
+    }
+
+    /**
+     * Renders a compact table showing added/removed API counts and dep count per category.
+     */
+    private void buildChangesStatsTable(StringBuilder content,
+                                         Map<String, Integer> addedByCategory,
+                                         Map<String, Integer> removedByCategory,
+                                         Map<String, Set<String>> changedDepsByCategory) {
+        boolean hasAny = addedByCategory.values().stream().anyMatch(n -> n > 0)
+            || removedByCategory.values().stream().anyMatch(n -> n > 0);
+        if (!hasAny) return;
+
+        content.append("<table class=\"stats-table\">\n");
+        content.append("<tr><th></th><th>Added</th><th>Removed</th><th>Deps</th></tr>\n");
+        int totalAdded = 0, totalRemoved = 0, totalDeps = 0;
+        for (String cat : CATEGORY_ORDER) {
+            int added = addedByCategory.getOrDefault(cat, 0);
+            int removed = removedByCategory.getOrDefault(cat, 0);
+            int deps = changedDepsByCategory.getOrDefault(cat, Set.of()).size();
+            if (added == 0 && removed == 0) continue;
+            totalAdded += added;
+            totalRemoved += removed;
+            totalDeps += deps;
+            content.append("<tr><th>").append(escapeHtml(cat)).append("</th>")
+                .append("<td class=\"num\">").append(added > 0 ? "+" + added : "0").append("</td>")
+                .append("<td class=\"num\">").append(removed > 0 ? "-" + removed : "0").append("</td>")
+                .append("<td class=\"num\">").append(deps).append("</td></tr>\n");
+        }
+        content.append("<tr><th>Total</th>")
+            .append("<td class=\"num\">").append(totalAdded > 0 ? "+" + totalAdded : "0").append("</td>")
+            .append("<td class=\"num\">").append(totalRemoved > 0 ? "-" + totalRemoved : "0").append("</td>")
+            .append("<td class=\"num\">").append(totalDeps).append("</td></tr>\n");
+        content.append("</table>\n");
     }
 
     private static String accessTypeSpan(String accessType) {
