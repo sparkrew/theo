@@ -99,12 +99,12 @@ public class HtmlReportGenerator {
             grouped.put(cat, new TreeMap<>());
         }
 
-        // Per-category stats: total unique APIs vs reachable unique APIs
-        Map<String, Set<String>> totalApisByCategory = new LinkedHashMap<>();
-        Map<String, Set<String>> reachableApisByCategory = new LinkedHashMap<>();
+        // Per-category stats: deps with direct vs indirect access
+        Map<String, Set<String>> directDepsByCategory = new LinkedHashMap<>();
+        Map<String, Set<String>> indirectDepsByCategory = new LinkedHashMap<>();
         for (String cat : CATEGORY_ORDER) {
-            totalApisByCategory.put(cat, new HashSet<>());
-            reachableApisByCategory.put(cat, new HashSet<>());
+            directDepsByCategory.put(cat, new HashSet<>());
+            indirectDepsByCategory.put(cat, new HashSet<>());
         }
 
         for (DependencyReport dep : summary.getDependencyReports()) {
@@ -117,15 +117,15 @@ public class HtmlReportGenerator {
                     .computeIfAbsent(dep.gav(), k -> new TreeMap<>())
                     .putIfAbsent(entry.sensitiveApi(), entry.accessType());
 
-                String apiKey = dep.gav() + "::" + entry.sensitiveApi();
-                totalApisByCategory.computeIfAbsent(cat, k -> new HashSet<>()).add(apiKey);
-                if (summary.isReachable(dep.gav(), entry.sensitiveApi())) {
-                    reachableApisByCategory.computeIfAbsent(cat, k -> new HashSet<>()).add(apiKey);
+                if ("DIRECT".equals(entry.accessType())) {
+                    directDepsByCategory.computeIfAbsent(cat, k -> new HashSet<>()).add(dep.gav());
+                } else {
+                    indirectDepsByCategory.computeIfAbsent(cat, k -> new HashSet<>()).add(dep.gav());
                 }
             }
         }
 
-        buildAllDepsStatsTable(content, totalApisByCategory, reachableApisByCategory);
+        buildAllDepsStatsTable(content, directDepsByCategory, indirectDepsByCategory);
 
         for (String category : CATEGORY_ORDER) {
             Map<String, Map<String, Map<String, String>>> subcategories = grouped.get(category);
@@ -598,30 +598,31 @@ public class HtmlReportGenerator {
     }
 
     /**
-     * Renders a compact table showing reachable/total API ratio per category.
+     * Renders a compact table showing deps with direct/indirect access per category.
      */
     private void buildAllDepsStatsTable(StringBuilder content,
-                                         Map<String, Set<String>> totalApisByCategory,
-                                         Map<String, Set<String>> reachableApisByCategory) {
-        boolean hasAny = totalApisByCategory.values().stream().anyMatch(s -> !s.isEmpty());
+                                         Map<String, Set<String>> directDepsByCategory,
+                                         Map<String, Set<String>> indirectDepsByCategory) {
+        boolean hasAny = directDepsByCategory.values().stream().anyMatch(s -> !s.isEmpty())
+            || indirectDepsByCategory.values().stream().anyMatch(s -> !s.isEmpty());
         if (!hasAny) return;
 
         content.append("<table class=\"stats-table\">\n");
-        content.append("<tr><th></th><th>Reachable</th><th>Total</th></tr>\n");
-        int grandReachable = 0, grandTotal = 0;
+        content.append("<tr><th></th><th>Direct</th><th>Indirect</th></tr>\n");
+        int grandDirect = 0, grandIndirect = 0;
         for (String cat : CATEGORY_ORDER) {
-            int total = totalApisByCategory.getOrDefault(cat, Set.of()).size();
-            int reachable = reachableApisByCategory.getOrDefault(cat, Set.of()).size();
-            if (total == 0) continue;
-            grandReachable += reachable;
-            grandTotal += total;
+            int direct = directDepsByCategory.getOrDefault(cat, Set.of()).size();
+            int indirect = indirectDepsByCategory.getOrDefault(cat, Set.of()).size();
+            if (direct == 0 && indirect == 0) continue;
+            grandDirect += direct;
+            grandIndirect += indirect;
             content.append("<tr><th>").append(escapeHtml(cat)).append("</th>")
-                .append("<td class=\"num\">").append(reachable).append("</td>")
-                .append("<td class=\"num\">").append(total).append("</td></tr>\n");
+                .append("<td class=\"num\">").append(direct).append("</td>")
+                .append("<td class=\"num\">").append(indirect).append("</td></tr>\n");
         }
         content.append("<tr><th>Total</th>")
-            .append("<td class=\"num\">").append(grandReachable).append("</td>")
-            .append("<td class=\"num\">").append(grandTotal).append("</td></tr>\n");
+            .append("<td class=\"num\">").append(grandDirect).append("</td>")
+            .append("<td class=\"num\">").append(grandIndirect).append("</td></tr>\n");
         content.append("</table>\n");
     }
 
