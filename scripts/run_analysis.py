@@ -13,12 +13,32 @@ Default input: /Tmp/gamageyo/theo-all/client-project-reports/client_projects.jso
 """
 
 import json
+import logging
 import subprocess
 import shutil
 import sys
 import time
 from pathlib import Path
 from datetime import datetime
+
+LOG_FILE = Path(__file__).with_name("run_analysis.log")
+
+log = logging.getLogger("run_analysis")
+
+
+def setup_logging():
+    log.setLevel(logging.DEBUG)
+    fmt = logging.Formatter("%(asctime)s %(levelname)-5s %(message)s",
+                            datefmt="%Y-%m-%d %H:%M:%S")
+    fh = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(fmt)
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(fmt)
+    log.addHandler(fh)
+    log.addHandler(ch)
+
 
 REPORTS_BASE = Path("/Tmp/gamageyo/theo-all/client-project-reports")
 DEFAULT_INPUT = REPORTS_BASE / "client_projects.json"
@@ -37,7 +57,7 @@ HISTORY_TIMEOUT = 600   # 10 minutes
 
 
 def run_cmd(cmd, cwd, timeout=120, label="command"):
-    print(f"  [{label}] {cmd[:120]}")
+    log.info(f"  [{label}] {cmd[:120]}")
     try:
         result = subprocess.run(
             cmd, shell=True, cwd=str(cwd),
@@ -82,7 +102,7 @@ def build_project(project_path, module):
     except RuntimeError:
         if not module:
             raise
-        print(f"  Root build failed, retrying from module: {module}")
+        log.warning(f"  Root build failed, retrying from module: {module}")
     run_cmd(MVN_BUILD, cwd=project_path / module, timeout=BUILD_TIMEOUT, label="mvn build (module)")
 
 
@@ -121,7 +141,7 @@ def clear_cache():
     projects_cache = THEO_DIR / "cache" / "projects"
     if projects_cache.exists():
         shutil.rmtree(projects_cache)
-    print("  Cleared history + last-run (dep cache kept)")
+    log.info("  Cleared history + last-run (dep cache kept)")
 
 
 def save_results(results):
@@ -229,9 +249,10 @@ def run_project(entry, result):
 
 
 def main():
+    setup_logging()
     input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_INPUT
     if not input_path.exists():
-        print(f"Input file not found: {input_path}")
+        log.error(f"Input file not found: {input_path}")
         sys.exit(1)
 
     with open(input_path) as f:
@@ -249,7 +270,7 @@ def main():
 
     total = len(projects)
     succeeded = sum(1 for r in results if r.get("analysisResult") == "success")
-    print(f"Loaded {total} projects ({succeeded} already done)\n")
+    log.info(f"Loaded {total} projects ({succeeded} already done)")
 
     for i, entry in enumerate(projects):
         result = results[i]
@@ -260,14 +281,14 @@ def main():
         project_name = Path(entry["projectPath"]).name
         module = entry.get("module", "")
         label = f"{project_name}/{module}" if module else project_name
-        print(f"[{i+1}/{total}] {label}")
-        print(f"  pre:  {entry['preCommit'][:8]}  post: {entry['postCommit'][:8]}")
+        log.info(f"[{i+1}/{total}] {label}")
+        log.info(f"  pre:  {entry['preCommit'][:8]}  post: {entry['postCommit'][:8]}")
 
         clear_cache()
 
         try:
             run_project(entry, result)
-            print(f"  OK ({result.get('totalDurationSeconds', '?')}s)\n")
+            log.info(f"  OK ({result.get('totalDurationSeconds', '?')}s)")
         except Exception as e:
             failed_step = result.pop("_step", "unknown")
             report_base = report_base_for(entry)
@@ -283,15 +304,16 @@ def main():
             result["analysisResult"] = "failed"
             result["failedStep"] = failed_step
             result["errorFile"] = str(error_file)
-            print(f"  FAILED at {failed_step}: {str(e)[:200]}\n")
+            log.error(f"  FAILED at {failed_step}: {str(e)[:200]}")
 
         save_results(results)
 
     done = sum(1 for r in results if r.get("analysisResult") == "success")
     failed = sum(1 for r in results if r.get("analysisResult") == "failed")
     remaining = total - done - failed
-    print(f"Done: {done} succeeded, {failed} failed, {remaining} remaining")
-    print(f"Results: {RESULTS_FILE}")
+    log.info(f"Done: {done} succeeded, {failed} failed, {remaining} remaining")
+    log.info(f"Results: {RESULTS_FILE}")
+    log.info(f"Log file: {LOG_FILE}")
 
 
 if __name__ == "__main__":
