@@ -1,5 +1,6 @@
 package io.github.chains_project.theo.static_analysis.report;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.chains_project.theo.static_analysis.model.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,6 +59,7 @@ public class HtmlReportGenerator {
             generateAllDependenciesReport(summary, template, reportDir);
         }
 
+        writeStatsJson(summary, changeSet, reportDir, reachableOnly);
         log.info("Reports written to {}", reportDir);
     }
 
@@ -686,6 +688,117 @@ public class HtmlReportGenerator {
             .append("<td class=\"num\">").append(totalRemoved > 0 ? "-" + totalRemoved : "0").append("</td>")
             .append("<td class=\"num\">").append(totalDeps).append("</td></tr>\n");
         content.append("</table>\n");
+    }
+
+    /**
+     * Writes a stats.json alongside the HTML reports with dep counts per category.
+     */
+    private void writeStatsJson(AnalysisSummary summary, ChangeSet changeSet,
+                                 Path reportDir, boolean reachableOnly) throws IOException {
+        Map<String, Object> stats = new LinkedHashMap<>();
+
+        // all-deps: deps with direct/indirect access per category
+        if (!reachableOnly) {
+            Map<String, Object> allDeps = new LinkedHashMap<>();
+            allDeps.put("totalAnalyzed", summary.getDependencyReports().size());
+            long withApis = summary.getDependencyReports().stream()
+                .filter(DependencyReport::hasSensitiveApis).count();
+            allDeps.put("withSensitiveApis", withApis);
+
+            Map<String, Set<String>> directDeps = new HashMap<>();
+            Map<String, Set<String>> indirectDeps = new HashMap<>();
+            for (DependencyReport dep : summary.getDependencyReports()) {
+                if (!dep.hasSensitiveApis()) continue;
+                for (SensitiveApiEntry e : dep.getSensitiveApis()) {
+                    String cat = normCategory(e.category());
+                    if ("DIRECT".equals(e.accessType())) {
+                        directDeps.computeIfAbsent(cat, k -> new HashSet<>()).add(dep.gav());
+                    } else {
+                        indirectDeps.computeIfAbsent(cat, k -> new HashSet<>()).add(dep.gav());
+                    }
+                }
+            }
+            Map<String, Object> byCat = new LinkedHashMap<>();
+            for (String cat : CATEGORY_ORDER) {
+                int d = directDeps.getOrDefault(cat, Set.of()).size();
+                int i = indirectDeps.getOrDefault(cat, Set.of()).size();
+                if (d > 0 || i > 0) {
+                    byCat.put(cat, Map.of("directDeps", d, "indirectDeps", i));
+                }
+            }
+            allDeps.put("byCategory", byCat);
+            stats.put("allDeps", allDeps);
+        }
+
+        // reachable: deps with reachable APIs per category
+        Map<String, Set<String>> reachableDepsByCat = new HashMap<>();
+        for (DependencyReport dep : summary.getDependencyReports()) {
+            if (!dep.hasSensitiveApis()) continue;
+            for (SensitiveApiEntry e : dep.getSensitiveApis()) {
+                if (!summary.isReachable(dep.gav(), e.sensitiveApi())) continue;
+                String cat = normCategory(e.category());
+                reachableDepsByCat.computeIfAbsent(cat, k -> new HashSet<>()).add(dep.gav());
+            }
+        }
+        Map<String, Object> reachable = new LinkedHashMap<>();
+        Set<String> allReachable = new HashSet<>();
+        reachableDepsByCat.values().forEach(allReachable::addAll);
+        reachable.put("totalDeps", allReachable.size());
+        Map<String, Object> reachableByCat = new LinkedHashMap<>();
+        for (String cat : CATEGORY_ORDER) {
+            int count = reachableDepsByCat.getOrDefault(cat, Set.of()).size();
+            if (count > 0) reachableByCat.put(cat, Map.of("deps", count));
+        }
+        reachable.put("byCategory", reachableByCat);
+        stats.put("reachable", reachable);
+
+        // changes: added/removed/modified dep counts per category
+        if (changeSet != null && changeSet.hasPreviousRun()) {
+            Map<String, Object> changes = new LinkedHashMap<>();
+            changes.put("addedDeps", changeSet.getAddedDependencies().size());
+            changes.put("removedDeps", changeSet.getRemovedDependencies().size());
+            changes.put("modifiedDeps", changeSet.getModifiedDependencies().size());
+            long versionChanged = changeSet.getModifiedDependencies().stream()
+                .filter(m -> !m.oldVersion().equals(m.newVersion())).count();
+            changes.put("versionChangedDeps", versionChanged);
+
+            Map<String, Set<String>> changedDepsByCat = new HashMap<>();
+            for (ChangeSet.DependencyChange mod : changeSet.getModifiedDependencies()) {
+                String ga = mod.groupId() + ":" + mod.artifactId();
+                for (SensitiveApiEntry e : mod.addedApis()) {
+                    changedDepsByCat.computeIfAbsent(normCategory(e.category()), k -> new HashSet<>()).add(ga);
+                }
+                for (SensitiveApiEntry e : mod.removedApis()) {
+                    changedDepsByCat.computeIfAbsent(normCategory(e.category()), k -> new HashSet<>()).add(ga);
+                }
+            }
+            for (DependencyReport added : changeSet.getAddedDependencies()) {
+                String ga = added.getGroupId() + ":" + added.getArtifactId();
+                for (SensitiveApiEntry e : added.getSensitiveApis()) {
+                    changedDepsByCat.computeIfAbsent(normCategory(e.category()), k -> new HashSet<>()).add(ga);
+                }
+            }
+            for (DependencyReport removed : changeSet.getRemovedDependencies()) {
+                String ga = removed.getGroupId() + ":" + removed.getArtifactId();
+                for (SensitiveApiEntry e : removed.getSensitiveApis()) {
+                    changedDepsByCat.computeIfAbsent(normCategory(e.category()), k -> new HashSet<>()).add(ga);
+                }
+            }
+            Map<String, Object> changesByCat = new LinkedHashMap<>();
+            for (String cat : CATEGORY_ORDER) {
+                int count = changedDepsByCat.getOrDefault(cat, Set.of()).size();
+                if (count > 0) changesByCat.put(cat, Map.of("changedDeps", count));
+            }
+            changes.put("byCategory", changesByCat);
+            stats.put("changes", changes);
+        }
+
+        new ObjectMapper().writerWithDefaultPrettyPrinter()
+            .writeValue(reportDir.resolve("stats.json").toFile(), stats);
+    }
+
+    private static String normCategory(String category) {
+        return (category == null || category.isBlank()) ? "OTHER" : category.toUpperCase();
     }
 
     private static String accessTypeSpan(String accessType) {
