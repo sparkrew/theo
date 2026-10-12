@@ -16,6 +16,7 @@ import json
 import logging
 import subprocess
 import shutil
+import xml.etree.ElementTree as ET
 import sys
 import time
 from pathlib import Path
@@ -106,9 +107,32 @@ def build_project(project_path, module):
     run_cmd(MVN_BUILD, cwd=project_path / module, timeout=BUILD_TIMEOUT, label="mvn build (module)")
 
 
+def get_submodules(project_path):
+    """Parse pom.xml and return list of <module> entries, or empty list if not multi-module."""
+    pom = project_path / "pom.xml"
+    if not pom.exists():
+        return []
+    try:
+        tree = ET.parse(pom)
+        root = tree.getroot()
+        ns = ""
+        if root.tag.startswith("{"):
+            ns = root.tag.split("}")[0] + "}"
+        modules = [m.text for m in root.findall(f".//{ns}modules/{ns}module") if m.text]
+        return modules
+    except ET.ParseError:
+        return []
+
+
 def run_theo(module_path, package_name, goal, extra_flags="", timeout=THEO_TIMEOUT):
-    cmd = f"mvn {THEO_PLUGIN}:{goal} -Dtheo.packageNames={package_name} {extra_flags}".strip()
-    run_cmd(cmd, cwd=module_path, timeout=timeout, label=f"theo {goal}")
+    submodules = get_submodules(module_path)
+    if submodules:
+        for submod in submodules:
+            cmd = f"mvn {THEO_PLUGIN}:{goal} -pl {submod} -Dtheo.packageNames={package_name} {extra_flags}".strip()
+            run_cmd(cmd, cwd=module_path, timeout=timeout, label=f"theo {goal} ({submod})")
+    else:
+        cmd = f"mvn {THEO_PLUGIN}:{goal} -Dtheo.packageNames={package_name} {extra_flags}".strip()
+        run_cmd(cmd, cwd=module_path, timeout=timeout, label=f"theo {goal}")
 
 
 def find_report_dirs(root_path):
