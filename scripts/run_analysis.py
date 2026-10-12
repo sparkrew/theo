@@ -51,9 +51,9 @@ MVN_BUILD = (
     "-Dspotless.check.skip=true -Denforcer.skip=true"
 )
 
-BUILD_TIMEOUT = 3600    # 60 minutes
-THEO_TIMEOUT = 3600     # 60 minutes
-HISTORY_TIMEOUT = 600   # 10 minutes
+BUILD_TIMEOUT = 7200    # 120 minutes
+THEO_TIMEOUT = 86400     # 1 day, since history can be slow on large projects
+HISTORY_TIMEOUT = 3600   # 60 minutes, not necessary to be long since history is usually fast, but just in case
 
 
 def run_cmd(cmd, cwd, timeout=120, label="command"):
