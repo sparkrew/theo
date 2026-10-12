@@ -14,7 +14,6 @@ Default input: /Tmp/gamageyo/theo-all/client-project-reports/client_projects.jso
 
 import json
 import logging
-import os
 import subprocess
 import shutil
 import sys
@@ -57,16 +56,12 @@ THEO_TIMEOUT = 3600     # 60 minutes
 HISTORY_TIMEOUT = 600   # 10 minutes
 
 
-MAVEN_OPTS = "-Xmx4g"
-
-
 def run_cmd(cmd, cwd, timeout=120, label="command"):
     log.info(f"  [{label}] {cmd[:120]}")
-    env = {**os.environ, "MAVEN_OPTS": MAVEN_OPTS}
     try:
         result = subprocess.run(
             cmd, shell=True, cwd=str(cwd),
-            capture_output=True, text=True, timeout=timeout, env=env
+            capture_output=True, text=True, timeout=timeout
         )
     except subprocess.TimeoutExpired as e:
         raise RuntimeError(f"{label} timed out after {timeout}s")
