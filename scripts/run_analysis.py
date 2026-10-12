@@ -14,6 +14,7 @@ Default input: /Tmp/gamageyo/theo-all/client-project-reports/client_projects.jso
 
 import json
 import logging
+import os
 import subprocess
 import shutil
 import sys
@@ -56,12 +57,16 @@ THEO_TIMEOUT = 3600     # 60 minutes
 HISTORY_TIMEOUT = 600   # 10 minutes
 
 
+MAVEN_OPTS = "-Xmx4g"
+
+
 def run_cmd(cmd, cwd, timeout=120, label="command"):
     log.info(f"  [{label}] {cmd[:120]}")
+    env = {**os.environ, "MAVEN_OPTS": MAVEN_OPTS}
     try:
         result = subprocess.run(
             cmd, shell=True, cwd=str(cwd),
-            capture_output=True, text=True, timeout=timeout
+            capture_output=True, text=True, timeout=timeout, env=env
         )
     except subprocess.TimeoutExpired as e:
         raise RuntimeError(f"{label} timed out after {timeout}s")
@@ -111,24 +116,59 @@ def run_theo(module_path, package_name, goal, extra_flags="", timeout=THEO_TIMEO
     run_cmd(cmd, cwd=module_path, timeout=timeout, label=f"theo {goal}")
 
 
-def copy_reports(module_path, dest):
-    """Copy theo report files from target/theo-report/ to dest."""
+def find_report_dirs(root_path):
+    """Find all target/theo-report/ directories under root_path."""
+    found = []
+    for target_dir in root_path.rglob("target"):
+        report_dir = target_dir / "theo-report"
+        if report_dir.is_dir() and any(report_dir.iterdir()):
+            found.append(report_dir)
+    return found
+
+
+def copy_reports(module_path, report_base, phase):
+    """Copy theo report files into the right folder structure.
+
+    phase is "precommit" or "postcommit".
+
+    Single module:  report_base/precommit/
+    Multi-module:   report_base/submod/precommit/
+    """
     src = module_path / "target" / "theo-report"
-    dest.mkdir(parents=True, exist_ok=True)
-    if not src.exists():
+    if src.exists() and any(src.iterdir()):
+        dest = report_base / phase
+        dest.mkdir(parents=True, exist_ok=True)
+        for f in src.iterdir():
+            if f.is_file():
+                shutil.copy2(f, dest / f.name)
         return
-    for f in src.iterdir():
-        if f.is_file():
-            shutil.copy2(f, dest / f.name)
+
+    # Multi-module: discover submodule report dirs
+    for report_dir in find_report_dirs(module_path):
+        rel = report_dir.relative_to(module_path)
+        submodule_name = str(rel.parent.parent)
+        dest = report_base / submodule_name / phase
+        dest.mkdir(parents=True, exist_ok=True)
+        for f in report_dir.iterdir():
+            if f.is_file():
+                shutil.copy2(f, dest / f.name)
 
 
 def read_stats(report_dir):
-    """Read stats.json if it exists."""
+    """Read stats.json from report_dir or its submodule subdirs."""
     p = report_dir / "stats.json"
     if p.exists():
         with open(p) as f:
             return json.load(f)
-    return None
+    if not report_dir.exists():
+        return None
+    stats = {}
+    for sub in sorted(report_dir.iterdir()):
+        sp = sub / "stats.json"
+        if sub.is_dir() and sp.exists():
+            with open(sp) as f:
+                stats[sub.name] = json.load(f)
+    return stats if stats else None
 
 
 def clear_cache():
@@ -163,12 +203,9 @@ def load_results():
 def report_base_for(entry):
     """Compute the report output directory for a project entry."""
     project_name = Path(entry["projectPath"]).name
-    module = entry.get("module", "")
     pre = entry["preCommit"][:8]
     post = entry["postCommit"][:8]
     pair_id = f"{pre}_{post}"
-    if module:
-        return REPORTS_BASE / project_name / module / pair_id
     return REPORTS_BASE / project_name / pair_id
 
 
@@ -183,8 +220,6 @@ def run_project(entry, result):
 
     module_path = project_path / module if module else project_path
     report_base = report_base_for(entry)
-    pre_dir = report_base / "precommit"
-    post_dir = report_base / "postcommit"
     report_base.mkdir(parents=True, exist_ok=True)
 
     result["preCommitInfo"] = git_info(project_path, pre_commit)
@@ -211,8 +246,8 @@ def run_project(entry, result):
              extra_flags=f"-Dtheo.snapshotLabel=pre-{pre_commit[:8]}")
     result["theoPreDurationSeconds"] = round(time.time() - t)
 
-    copy_reports(module_path, pre_dir)
-    result["preStats"] = read_stats(pre_dir)
+    copy_reports(module_path, report_base, "precommit")
+    result["preStats"] = read_stats(report_base / "precommit")
 
     # ---- transition ----
     if post_command:
@@ -234,13 +269,13 @@ def run_project(entry, result):
     run_theo(module_path, package_name, "history", timeout=HISTORY_TIMEOUT)
     result["theoPostDurationSeconds"] = round(time.time() - t)
 
-    copy_reports(module_path, post_dir)
-    # history.html goes in the pair root (spans both commits)
+    copy_reports(module_path, report_base, "postcommit")
+    # history.html goes alongside pre/postcommit
     history_src = module_path / "target" / "theo-report" / "history.html"
     if history_src.exists():
         shutil.copy2(history_src, report_base / "history.html")
 
-    result["postStats"] = read_stats(post_dir)
+    result["postStats"] = read_stats(report_base / "postcommit")
     result["totalDurationSeconds"] = round(time.time() - start)
     result["analysisResult"] = "success"
     result["failedStep"] = None
