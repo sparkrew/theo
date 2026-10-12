@@ -5,6 +5,7 @@ import io.github.chains_project.theo.static_analysis.model.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -70,12 +71,24 @@ public class HtmlReportGenerator {
         }
     }
 
-    private String renderTemplate(String template, String title, String content, String footerNote) {
-        return template
+    private void writeReport(String template, String title, StringBuilder content,
+                              String footerNote, Path outputFile) throws IOException {
+        String prepared = template
             .replace("{{TITLE}}", escapeHtml(title))
             .replace("{{GENERATED_AT}}", TIMESTAMP_FORMAT.format(Instant.now()))
-            .replace("{{CONTENT}}", content)
             .replace("{{FOOTER_NOTE}}", footerNote != null ? escapeHtml(footerNote) : "");
+
+        int placeholder = prepared.indexOf("{{CONTENT}}");
+        try (BufferedWriter writer = Files.newBufferedWriter(outputFile, StandardCharsets.UTF_8)) {
+            if (placeholder >= 0) {
+                writer.write(prepared, 0, placeholder);
+                writer.write(content.toString());
+                writer.write(prepared, placeholder + "{{CONTENT}}".length(),
+                             prepared.length() - placeholder - "{{CONTENT}}".length());
+            } else {
+                writer.write(prepared);
+            }
+        }
     }
 
     // --- all-dependencies.html ---
@@ -166,9 +179,8 @@ public class HtmlReportGenerator {
             }
         }
 
-        String html = renderTemplate(template, "Theo — all dependencies", content.toString(),
-            "For full call paths, see reachable.html.");
-        Files.writeString(reportDir.resolve("all-dependencies.html"), html, StandardCharsets.UTF_8);
+        writeReport(template, "Theo — all dependencies", content,
+            "For full call paths, see reachable.html.", reportDir.resolve("all-dependencies.html"));
     }
 
     // --- reachable.html ---
@@ -256,9 +268,8 @@ public class HtmlReportGenerator {
             }
         }
 
-        String html = renderTemplate(template, "Theo — client-reachable APIs", content.toString(),
-            null);
-        Files.writeString(reportDir.resolve("reachable.html"), html, StandardCharsets.UTF_8);
+        writeReport(template, "Theo — client-reachable APIs", content,
+            null, reportDir.resolve("reachable.html"));
     }
 
     // --- changes.html ---
@@ -287,8 +298,8 @@ public class HtmlReportGenerator {
             content.append("</div>\n");
         }
 
-        String html = renderTemplate(template, "Theo — changes since last run", content.toString(), null);
-        Files.writeString(reportDir.resolve("changes.html"), html, StandardCharsets.UTF_8);
+        writeReport(template, "Theo — changes since last run", content,
+            null, reportDir.resolve("changes.html"));
     }
 
     private void buildChangesSection(StringBuilder content, ChangeSet changeSet,
@@ -479,17 +490,18 @@ public class HtmlReportGenerator {
     private void buildPathDetails(StringBuilder content, SensitiveApiEntry entry) {
         content.append("    <details class=\"call-path\">\n");
 
-        String pathSummary = entry.fullPath().isEmpty() ? entry.entryPoint() + " → " + entry.sensitiveApi()
-            : entry.fullPath().get(0) + " → ... → " + entry.fullPath().get(entry.fullPath().size() - 1);
+        String clientCaller = entry.fullPath().isEmpty() ? entry.entryPoint()
+            : entry.fullPath().get(0);
+        String depCaller = entry.fullPath().size() >= 2
+            ? entry.fullPath().get(1) : entry.entryPoint();
+        String pathSummary = clientCaller + " → " + depCaller + " → " + entry.sensitiveApi();
         content.append("      <summary>").append(escapeHtml(pathSummary)).append("</summary>\n");
 
-        if (!entry.fullPath().isEmpty()) {
-            content.append("      <ol class=\"path-list\">\n");
-            for (String step : entry.fullPath()) {
-                content.append("        <li>").append(escapeHtml(step)).append("</li>\n");
-            }
-            content.append("      </ol>\n");
-        }
+        content.append("      <div class=\"path-endpoints\">\n");
+        content.append("        <div><strong>Client caller:</strong> ").append(escapeHtml(clientCaller)).append("</div>\n");
+        content.append("        <div><strong>Dep caller:</strong> ").append(escapeHtml(depCaller)).append("</div>\n");
+        content.append("        <div><strong>Sensitive API:</strong> ").append(escapeHtml(entry.sensitiveApi())).append("</div>\n");
+        content.append("      </div>\n");
 
         content.append("    </details>\n");
     }

@@ -100,6 +100,7 @@ public class ClientReachabilityAnalyzer {
 
         Set<String> reachableKeys = new HashSet<>();
         Map<String, List<SensitiveApiEntry>> entriesByDep = new HashMap<>();
+        Set<String> seenPairs = new HashSet<>();
 
         try {
             RapidTypeAnalysisAlgorithm rta = new RapidTypeAnalysisAlgorithm(view);
@@ -160,9 +161,21 @@ public class ClientReachabilityAnalyzer {
                                 }
                                 String accessType = isDirect ? "DIRECT" : "INDIRECT";
 
-                                List<String> fullPath = path.stream()
-                                        .map(this::formatMethodSignature)
-                                        .collect(Collectors.toList());
+                                // Keep only the client caller and the dep caller of the
+                                // sensitive API, deduplicated across all paths.
+                                String clientCaller = firstThirdPartyIndex > 0
+                                        ? formatMethodSignature(path.get(firstThirdPartyIndex - 1))
+                                        : formatMethodSignature(entryPoint);
+                                String depCaller = path.size() >= 2
+                                        ? formatMethodSignature(path.get(path.size() - 2))
+                                        : thirdPartyFormatted;
+
+                                String pairKey = depGav + "::" + sensitiveApiName + "::" + clientCaller + "::" + depCaller;
+                                if (!seenPairs.add(pairKey)) {
+                                    continue;
+                                }
+
+                                List<String> fullPath = List.of(clientCaller, depCaller);
 
                                 String[] catInfo = categoryLookup.get(sensitiveApiName);
                                 String category = catInfo != null ? catInfo[0] : null;
