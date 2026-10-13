@@ -47,7 +47,7 @@ DEFAULT_INPUT = REPORTS_BASE / "client_projects.json"
 RESULTS_FILE = REPORTS_BASE / "client_project_results.json"
 THEO_DIR = Path.home() / ".theo"
 
-os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx16g"
+os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx40g"
 
 THEO_PLUGIN = "io.github.sparkrew:theo-static-maven-plugin"
 MVN_BUILD = (
