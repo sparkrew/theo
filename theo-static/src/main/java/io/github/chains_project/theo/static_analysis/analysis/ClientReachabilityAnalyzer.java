@@ -106,14 +106,8 @@ public class ClientReachabilityAnalyzer {
             RapidTypeAnalysisAlgorithm rta = new RapidTypeAnalysisAlgorithm(view);
             CallGraph cg = rta.initialize(new ArrayList<>(entryPoints));
 
-            Map<MethodSignature, Set<MethodSignature>> reachableMap = new HashMap<>();
             for (MethodSignature entryPoint : entryPoints) {
-                reachableMap.put(entryPoint, getAllReachableMethods(cg, entryPoint));
-            }
-
-            for (Map.Entry<MethodSignature, Set<MethodSignature>> entry : reachableMap.entrySet()) {
-                MethodSignature entryPoint = entry.getKey();
-                Set<MethodSignature> reachable = entry.getValue();
+                Set<MethodSignature> reachable = getAllReachableMethods(cg, entryPoint);
 
                 Set<MethodSignature> reachableSensitive = reachable.stream()
                         .filter(method -> isSensitiveAPI(method, sensitiveApiIdentifiers))
