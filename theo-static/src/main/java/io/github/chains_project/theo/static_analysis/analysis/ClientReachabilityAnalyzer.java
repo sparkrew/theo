@@ -103,8 +103,8 @@ public class ClientReachabilityAnalyzer {
         Set<String> seenPairs = new HashSet<>();
 
         try {
-            RapidTypeAnalysisAlgorithm rta = new RapidTypeAnalysisAlgorithm(view);
-            CallGraph cg = rta.initialize(new ArrayList<>(entryPoints));
+            CallGraph cg = new RapidTypeAnalysisAlgorithm(view).initialize(new ArrayList<>(entryPoints));
+            view = null;
 
             for (MethodSignature entryPoint : entryPoints) {
                 Set<MethodSignature> reachable = getAllReachableMethods(cg, entryPoint);
