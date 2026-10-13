@@ -14,6 +14,7 @@ Default input: /Tmp/gamageyo/theo-all/client-project-reports/client_projects.jso
 
 import json
 import logging
+import os
 import subprocess
 import shutil
 import xml.etree.ElementTree as ET
@@ -45,6 +46,8 @@ REPORTS_BASE = Path("/Tmp/gamageyo/theo-all/client-project-reports")
 DEFAULT_INPUT = REPORTS_BASE / "client_projects.json"
 RESULTS_FILE = REPORTS_BASE / "client_project_results.json"
 THEO_DIR = Path.home() / ".theo"
+
+os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx16g"
 
 THEO_PLUGIN = "io.github.sparkrew:theo-static-maven-plugin"
 MVN_BUILD = (
@@ -131,7 +134,7 @@ def run_theo(module_path, package_name, goal, extra_flags="", timeout=THEO_TIMEO
             cmd = f"mvn {THEO_PLUGIN}:{goal} -pl {submod} -Dtheo.packageNames={package_name} {extra_flags}".strip()
             run_cmd(cmd, cwd=module_path, timeout=timeout, label=f"theo {goal} ({submod})")
     else:
-        cmd = f"mvn {THEO_PLUGIN}:{goal} -Dtheo.packageNames={package_name} {extra_flags}".strip()
+        cmd = f"mvn {THEO_PLUGIN}:{goal} -pl . -Dtheo.packageNames={package_name} {extra_flags}".strip()
         run_cmd(cmd, cwd=module_path, timeout=timeout, label=f"theo {goal}")
 
 
