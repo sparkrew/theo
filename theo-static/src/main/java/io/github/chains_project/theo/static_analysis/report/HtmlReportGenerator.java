@@ -213,9 +213,11 @@ public class HtmlReportGenerator {
             depsByCategory.put(cat, new HashSet<>());
         }
 
+        Map<String, List<SensitiveApiEntry>> reachableEntries = summary.getReachableEntries();
         for (DependencyReport dep : reachableDeps) {
-            for (SensitiveApiEntry entry : dep.getSensitiveApis()) {
-                if (!summary.isReachable(dep.gav(), entry.sensitiveApi())) continue;
+            List<SensitiveApiEntry> clientEntries = reachableEntries != null
+                    ? reachableEntries.getOrDefault(dep.gav(), List.of()) : List.of();
+            for (SensitiveApiEntry entry : clientEntries) {
                 String cat = (entry.category() == null || entry.category().isBlank()) ? "OTHER" : entry.category().toUpperCase();
                 String sub = (entry.subcategory() == null || entry.subcategory().isBlank()) ? "General" : entry.subcategory();
                 grouped.computeIfAbsent(cat, k -> new TreeMap<>())
