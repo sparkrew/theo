@@ -160,9 +160,13 @@ public class ClientReachabilityAnalyzer {
                                 String clientCaller = firstThirdPartyIndex > 0
                                         ? formatMethodSignature(path.get(firstThirdPartyIndex - 1))
                                         : formatMethodSignature(entryPoint);
-                                String depCaller = path.size() >= 2
-                                        ? formatMethodSignature(path.get(path.size() - 2))
-                                        : thirdPartyFormatted;
+                                String depCaller = thirdPartyFormatted;
+                                for (int k = path.size() - 2; k >= firstThirdPartyIndex; k--) {
+                                    if (isThirdPartyMethod(path.get(k), ignoredPrefixes)) {
+                                        depCaller = formatMethodSignature(path.get(k));
+                                        break;
+                                    }
+                                }
 
                                 String pairKey = depGav + "::" + sensitiveApiName + "::" + clientCaller + "::" + depCaller;
                                 if (!seenPairs.add(pairKey)) {
