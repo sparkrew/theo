@@ -625,20 +625,21 @@ public class HtmlReportGenerator {
 
         content.append("<table class=\"stats-table\">\n");
         content.append("<tr><th></th><th>Direct</th><th>Indirect</th></tr>\n");
-        int grandDirect = 0, grandIndirect = 0;
+        Set<String> allDirect = new HashSet<>();
+        Set<String> allIndirect = new HashSet<>();
         for (String cat : CATEGORY_ORDER) {
-            int direct = directDepsByCategory.getOrDefault(cat, Set.of()).size();
-            int indirect = indirectDepsByCategory.getOrDefault(cat, Set.of()).size();
-            if (direct == 0 && indirect == 0) continue;
-            grandDirect += direct;
-            grandIndirect += indirect;
+            Set<String> direct = directDepsByCategory.getOrDefault(cat, Set.of());
+            Set<String> indirect = indirectDepsByCategory.getOrDefault(cat, Set.of());
+            if (direct.isEmpty() && indirect.isEmpty()) continue;
+            allDirect.addAll(direct);
+            allIndirect.addAll(indirect);
             content.append("<tr><th>").append(escapeHtml(cat)).append("</th>")
-                .append("<td class=\"num\">").append(direct).append("</td>")
-                .append("<td class=\"num\">").append(indirect).append("</td></tr>\n");
+                .append("<td class=\"num\">").append(direct.size()).append("</td>")
+                .append("<td class=\"num\">").append(indirect.size()).append("</td></tr>\n");
         }
         content.append("<tr><th>Total</th>")
-            .append("<td class=\"num\">").append(grandDirect).append("</td>")
-            .append("<td class=\"num\">").append(grandIndirect).append("</td></tr>\n");
+            .append("<td class=\"num\">").append(allDirect.size()).append("</td>")
+            .append("<td class=\"num\">").append(allIndirect.size()).append("</td></tr>\n");
         content.append("</table>\n");
     }
 
@@ -653,20 +654,21 @@ public class HtmlReportGenerator {
 
         content.append("<table class=\"stats-table\">\n");
         content.append("<tr><th></th><th>APIs</th><th>Deps</th></tr>\n");
-        int totalApis = 0, totalDeps = 0;
+        Set<String> allApis = new HashSet<>();
+        Set<String> allDeps = new HashSet<>();
         for (String cat : CATEGORY_ORDER) {
-            int apis = apisByCategory.getOrDefault(cat, Set.of()).size();
-            int deps = depsByCategory.getOrDefault(cat, Set.of()).size();
-            if (apis == 0) continue;
-            totalApis += apis;
-            totalDeps += deps;
+            Set<String> apis = apisByCategory.getOrDefault(cat, Set.of());
+            Set<String> deps = depsByCategory.getOrDefault(cat, Set.of());
+            if (apis.isEmpty()) continue;
+            allApis.addAll(apis);
+            allDeps.addAll(deps);
             content.append("<tr><th>").append(escapeHtml(cat)).append("</th>")
-                .append("<td class=\"num\">").append(apis).append("</td>")
-                .append("<td class=\"num\">").append(deps).append("</td></tr>\n");
+                .append("<td class=\"num\">").append(apis.size()).append("</td>")
+                .append("<td class=\"num\">").append(deps.size()).append("</td></tr>\n");
         }
         content.append("<tr><th>Total</th>")
-            .append("<td class=\"num\">").append(totalApis).append("</td>")
-            .append("<td class=\"num\">").append(totalDeps).append("</td></tr>\n");
+            .append("<td class=\"num\">").append(allApis.size()).append("</td>")
+            .append("<td class=\"num\">").append(allDeps.size()).append("</td></tr>\n");
         content.append("</table>\n");
     }
 
@@ -683,24 +685,25 @@ public class HtmlReportGenerator {
 
         content.append("<table class=\"stats-table\">\n");
         content.append("<tr><th></th><th>Added</th><th>Removed</th><th>Deps</th></tr>\n");
-        int totalAdded = 0, totalRemoved = 0, totalDeps = 0;
+        int totalAdded = 0, totalRemoved = 0;
+        Set<String> allChangedDeps = new HashSet<>();
         for (String cat : CATEGORY_ORDER) {
             int added = addedByCategory.getOrDefault(cat, 0);
             int removed = removedByCategory.getOrDefault(cat, 0);
-            int deps = changedDepsByCategory.getOrDefault(cat, Set.of()).size();
+            Set<String> deps = changedDepsByCategory.getOrDefault(cat, Set.of());
             if (added == 0 && removed == 0) continue;
             totalAdded += added;
             totalRemoved += removed;
-            totalDeps += deps;
+            allChangedDeps.addAll(deps);
             content.append("<tr><th>").append(escapeHtml(cat)).append("</th>")
                 .append("<td class=\"num\">").append(added > 0 ? "+" + added : "0").append("</td>")
                 .append("<td class=\"num\">").append(removed > 0 ? "-" + removed : "0").append("</td>")
-                .append("<td class=\"num\">").append(deps).append("</td></tr>\n");
+                .append("<td class=\"num\">").append(deps.size()).append("</td></tr>\n");
         }
         content.append("<tr><th>Total</th>")
             .append("<td class=\"num\">").append(totalAdded > 0 ? "+" + totalAdded : "0").append("</td>")
             .append("<td class=\"num\">").append(totalRemoved > 0 ? "-" + totalRemoved : "0").append("</td>")
-            .append("<td class=\"num\">").append(totalDeps).append("</td></tr>\n");
+            .append("<td class=\"num\">").append(allChangedDeps.size()).append("</td></tr>\n");
         content.append("</table>\n");
     }
 
