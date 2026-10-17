@@ -1,0 +1,536 @@
+#!/usr/bin/env python3
+"""
+History analysis script for Theo.
+
+Walks through git history of Maven projects (oldest to newest), identifies
+commits with actual dependency changes in pom.xml files, and runs Theo
+reachable-only analysis on the affected modules.  Keeps all caches and
+snapshots on disk so that consecutive runs compare with the previous state.
+
+Usage:
+    python3 run_history_analysis.py [path/to/client_project_histories.json]
+
+Default input: /Tmp/gamageyo/theo-all/client-project-reports/client_project_histories.json
+
+Input JSON format (array):
+  [
+    {
+      "projectPath": "/data/rech/gamageyo/tmp/indigo-iam_iam",
+      "lastCommit": "027afe12...",
+      "packageName": "it.infn.mw.iam",
+      "preCommand": "git stash apply",
+      "postCommand": "git reset --hard HEAD"
+    }
+  ]
+
+Report layout:
+  <REPORTS_BASE>/<project>/
+      history.json                  -- analysis tracking / results
+      history.html                  -- Theo history (single-module)
+      <commit_sha8>/                -- per-commit reports
+          *.json / *.html           -- reachable, changes, stats, …
+  Multi-module:
+      <module>/
+          history.html
+          <commit_sha8>/
+              *.json / *.html
+"""
+
+import json
+import logging
+import os
+import subprocess
+import shutil
+import xml.etree.ElementTree as ET
+import sys
+import time
+from pathlib import Path
+from datetime import datetime, timedelta
+
+LOG_FILE = Path(__file__).with_name("run_history_analysis.log")
+log = logging.getLogger("run_history_analysis")
+
+
+def setup_logging():
+    log.setLevel(logging.DEBUG)
+    fmt = logging.Formatter("%(asctime)s %(levelname)-5s %(message)s",
+                            datefmt="%Y-%m-%d %H:%M:%S")
+    fh = logging.FileHandler(LOG_FILE, mode="a", encoding="utf-8")
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(fmt)
+    ch = logging.StreamHandler(sys.stdout)
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(fmt)
+    log.addHandler(fh)
+    log.addHandler(ch)
+
+
+REPORTS_BASE = Path("/Tmp/gamageyo/theo-all/client-project-reports/history")
+DEFAULT_INPUT = Path(
+    "/Tmp/gamageyo/theo-all/client-project-reports/client_project_histories.json"
+)
+
+os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx40g"
+
+THEO_PLUGIN = "io.github.sparkrew:theo-static-maven-plugin"
+MVN_BUILD = (
+    "mvn clean install -DskipTests -Dcheckstyle.skip=true "
+    "-Dspotless.check.skip=true -Denforcer.skip=true"
+)
+
+BUILD_TIMEOUT = 7200     # 2 hours
+THEO_TIMEOUT = 86400     # 1 day
+HISTORY_TIMEOUT = 3600   # 1 hour
+FIVE_YEARS = timedelta(days=5 * 365)
+
+REACHABLE_FLAG = "-Dtheo.reachableOnly=true"
+HISTORY_FILENAMES = {"history.html", "history.json"}
+
+
+
+# Shared utilities
+def run_cmd(cmd, cwd, timeout=120, label="command"):
+    log.info(f"  [{label}] {cmd[:120]}")
+    try:
+        result = subprocess.run(
+            cmd, shell=True, cwd=str(cwd),
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"{label} timed out after {timeout}s")
+    if result.returncode != 0:
+        out = (result.stdout or "")[-1500:]
+        err = (result.stderr or "")[-1500:]
+        raise RuntimeError(
+            f"{label} failed (exit {result.returncode}):\n{out}\n{err}"
+        )
+    return result
+
+
+def git_checkout(project_path, commit):
+    run_cmd(f"git checkout {commit}", cwd=project_path, label="git checkout")
+
+
+def git_info(project_path, commit):
+    try:
+        r = run_cmd(
+            f"git log -1 --format='%H%n%s%n%ai' {commit}",
+            cwd=project_path, label="git info",
+        )
+        lines = r.stdout.strip().splitlines()
+        return {
+            "sha": lines[0] if lines else commit,
+            "message": lines[1] if len(lines) > 1 else "",
+            "date": lines[2] if len(lines) > 2 else "",
+        }
+    except RuntimeError:
+        return {"sha": commit, "message": "", "date": ""}
+
+
+def build_project(project_path):
+    run_cmd(MVN_BUILD, cwd=project_path, timeout=BUILD_TIMEOUT,
+            label="mvn build (root)")
+
+
+def get_submodules(project_path):
+    pom = project_path / "pom.xml"
+    if not pom.exists():
+        return []
+    try:
+        tree = ET.parse(pom)
+        root = tree.getroot()
+        ns = ""
+        if root.tag.startswith("{"):
+            ns = root.tag.split("}")[0] + "}"
+        return [m.text for m in root.findall(f".//{ns}modules/{ns}module")
+                if m.text]
+    except ET.ParseError:
+        return []
+
+
+
+# Git history helpers
+def get_pom_commits(project_path, last_commit=None):
+    """Return commits that touch any pom.xml, oldest-first.
+
+    Starts from *last_commit* (inclusive) or 5 years ago, up to HEAD.
+    """
+    if last_commit:
+        # Inclusive range: last_commit^ .. HEAD
+        try:
+            cmd = (
+                f"git log --reverse --format=%H "
+                f"{last_commit}^..HEAD "
+                f"-- ':(glob)**/pom.xml' 'pom.xml'"
+            )
+            r = run_cmd(cmd, cwd=project_path, timeout=120,
+                        label="git log pom commits")
+            commits = [l.strip() for l in r.stdout.strip().splitlines()
+                       if l.strip()]
+            if commits:
+                return commits
+        except RuntimeError:
+            pass
+        # Fallback: exclusive (misses last_commit itself when it is the root)
+        try:
+            cmd = (
+                f"git log --reverse --format=%H "
+                f"{last_commit}..HEAD "
+                f"-- ':(glob)**/pom.xml' 'pom.xml'"
+            )
+            r = run_cmd(cmd, cwd=project_path, timeout=120,
+                        label="git log pom commits (excl)")
+            return [l.strip() for l in r.stdout.strip().splitlines()
+                    if l.strip()]
+        except RuntimeError:
+            return []
+    else:
+        since = (datetime.now() - FIVE_YEARS).strftime("%Y-%m-%d")
+        cmd = (
+            f"git log --reverse --format=%H "
+            f"--since='{since}' "
+            f"-- ':(glob)**/pom.xml' 'pom.xml'"
+        )
+        try:
+            r = run_cmd(cmd, cwd=project_path, timeout=120,
+                        label="git log pom commits (5yr)")
+            return [l.strip() for l in r.stdout.strip().splitlines()
+                    if l.strip()]
+        except RuntimeError:
+            return []
+
+
+def get_changed_poms(project_path, commit):
+    """List pom.xml paths changed in a single *commit*."""
+    cmd = (
+        f"git diff-tree --no-commit-id --name-only -r {commit} "
+        f"-- ':(glob)**/pom.xml' 'pom.xml'"
+    )
+    try:
+        r = run_cmd(cmd, cwd=project_path, timeout=60, label="diff-tree poms")
+        return [f.strip() for f in r.stdout.strip().splitlines()
+                if f.strip().endswith("pom.xml")]
+    except RuntimeError:
+        return []
+
+
+
+# Dependency-change detection (strict)
+def _file_at_commit(project_path, commit, file_path):
+    """Return file contents at *commit*, or None."""
+    try:
+        r = subprocess.run(
+            f"git show {commit}:{file_path}",
+            shell=True, cwd=str(project_path),
+            capture_output=True, text=True, timeout=30,
+        )
+        return r.stdout if r.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def _extract_dependencies(pom_xml):
+    """Return frozenset of (groupId, artifactId, version, scope) from all
+    <dependency> elements anywhere in the pom (including dependencyManagement,
+    plugin deps, profile deps, etc.)."""
+    try:
+        root = ET.fromstring(pom_xml)
+    except ET.ParseError:
+        return frozenset()
+    ns = ""
+    if root.tag.startswith("{"):
+        ns = root.tag.split("}")[0] + "}"
+    deps = set()
+    for dep in root.findall(f".//{ns}dependency"):
+        gid = (dep.findtext(f"{ns}groupId") or "").strip()
+        aid = (dep.findtext(f"{ns}artifactId") or "").strip()
+        ver = (dep.findtext(f"{ns}version") or "").strip()
+        scope = (dep.findtext(f"{ns}scope") or "").strip()
+        deps.add((gid, aid, ver, scope))
+    return frozenset(deps)
+
+
+def has_dependency_changes(project_path, commit, pom_path):
+    """True when actual <dependency> entries differ between *commit* and its
+    parent."""
+    cur = _file_at_commit(project_path, commit, pom_path)
+    prev = _file_at_commit(project_path, f"{commit}^", pom_path)
+    if cur is None and prev is None:
+        return False
+    if cur is None or prev is None:
+        return True  # added or deleted
+    return _extract_dependencies(cur) != _extract_dependencies(prev)
+
+
+def pom_path_to_module(pom_path):
+    """'pom.xml' -> '.', 'sub/pom.xml' -> 'sub'."""
+    parent = str(Path(pom_path).parent)
+    return "." if parent == "." else parent
+
+
+
+# Module resolution
+def resolve_modules(project_path, changed_modules):
+    """Expand root ('.') to all submodules on a multi-module project."""
+    resolved = set()
+    for mod in changed_modules:
+        if mod == ".":
+            subs = get_submodules(project_path)
+            if subs:
+                resolved.update(subs)
+            else:
+                resolved.add(".")
+        else:
+            resolved.add(mod)
+    return sorted(resolved)
+
+
+
+# Theo execution
+def run_theo_goal(project_path, module, package_name, goal,
+                  extra_flags="", timeout=THEO_TIMEOUT):
+    pl = module if module != "." else "."
+    cmd = (
+        f"mvn {THEO_PLUGIN}:{goal} -pl {pl} "
+        f"-Dtheo.packageNames={package_name} {REACHABLE_FLAG} "
+        f"{extra_flags}"
+    ).strip()
+    run_cmd(cmd, cwd=project_path, timeout=timeout,
+            label=f"theo {goal} ({module})")
+
+
+
+# Report copying
+def _module_report_src(project_path, module):
+    if module == ".":
+        return project_path / "target" / "theo-report"
+    return project_path / module / "target" / "theo-report"
+
+
+def _report_dirs(project_report_base, module, commit_sha):
+    """Return (commit_report_dir, history_dir)."""
+    short = commit_sha[:8]
+    if module == ".":
+        return project_report_base / short, project_report_base
+    return (project_report_base / module / short,
+            project_report_base / module)
+
+
+def copy_commit_reports(project_path, module, dest):
+    """Copy per-commit files (everything except history) into *dest*."""
+    src = _module_report_src(project_path, module)
+    if not src.exists():
+        return
+    dest.mkdir(parents=True, exist_ok=True)
+    for f in src.iterdir():
+        if f.is_file() and f.name not in HISTORY_FILENAMES:
+            shutil.copy2(f, dest / f.name)
+
+
+def copy_history_reports(project_path, module, dest):
+    """Copy history files to the module-level directory (outside commit
+    folders) so they accumulate across the timeline."""
+    src = _module_report_src(project_path, module)
+    if not src.exists():
+        return
+    dest.mkdir(parents=True, exist_ok=True)
+    for name in HISTORY_FILENAMES:
+        f = src / name
+        if f.exists():
+            shutil.copy2(f, dest / name)
+
+
+
+# Tracking / results persistence
+def _history_path(project_report_base):
+    return project_report_base / "analysis_results.json"
+
+
+def load_tracking(project_report_base):
+    p = _history_path(project_report_base)
+    if p.exists():
+        with open(p) as f:
+            return json.load(f)
+    return {"commits": [], "noDepChangeCommits": []}
+
+
+def save_tracking(data, project_report_base):
+    p = _history_path(project_report_base)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    with open(tmp, "w") as f:
+        json.dump(data, f, indent=2)
+    tmp.rename(p)
+
+
+
+# Per-project processing
+def process_project(entry):
+    project_path = Path(entry["projectPath"])
+    last_commit = entry.get("lastCommit")
+    package_name = entry["packageName"]
+    pre_command = entry.get("preCommand", "")
+    post_command = entry.get("postCommand", "")
+
+    project_name = project_path.name
+    project_report_base = REPORTS_BASE / project_name
+    project_report_base.mkdir(parents=True, exist_ok=True)
+
+    tracking = load_tracking(project_report_base)
+    done_shas = {c["sha"] for c in tracking["commits"]}
+    no_dep_shas = set(tracking["noDepChangeCommits"])
+
+    # ---- discover commits ----
+    pom_commits = get_pom_commits(project_path, last_commit)
+    log.info(f"  {len(pom_commits)} commits touch pom.xml")
+
+    for commit in pom_commits:
+        if commit in done_shas or commit in no_dep_shas:
+            continue
+
+        # Strict check: only commits where <dependency> elements changed
+        changed_poms = get_changed_poms(project_path, commit)
+        dep_modules = []
+        for pom in changed_poms:
+            if has_dependency_changes(project_path, commit, pom):
+                dep_modules.append(pom_path_to_module(pom))
+
+        if not dep_modules:
+            log.debug(f"  {commit[:8]}: pom changed, no dep changes – skip")
+            tracking["noDepChangeCommits"].append(commit)
+            save_tracking(tracking, project_report_base)
+            continue
+
+        info = git_info(project_path, commit)
+        log.info(f"  Analyzing {commit[:8]} ({info.get('date','?')}) "
+                 f"– dep changes in: {dep_modules}")
+
+        result = {
+            "sha": commit,
+            "commitInfo": info,
+            "changedModules": dep_modules,
+        }
+
+        try:
+            # ---- checkout ----
+            git_checkout(project_path, commit)
+
+            if pre_command:
+                run_cmd(pre_command, cwd=project_path, label="preCommand")
+
+            # ---- build (root) ----
+            try:
+                build_project(project_path)
+            except RuntimeError as e:
+                log.warning(f"  Build failed for {commit[:8]}, skipping")
+                log.debug(f"  {str(e)[:300]}")
+                result["analysisResult"] = "build_failed"
+                result["error"] = str(e)[:500]
+                tracking["commits"].append(result)
+                save_tracking(tracking, project_report_base)
+                if post_command:
+                    _safe_run(post_command, project_path)
+                continue
+
+            # ---- resolve modules ----
+            modules = resolve_modules(project_path, dep_modules)
+            result["analyzedModules"] = modules
+
+            # ---- run Theo on each module ----
+            t = time.time()
+            for module in modules:
+                try:
+                    run_theo_goal(project_path, module, package_name,
+                                  "cve-check")
+                except RuntimeError as e:
+                    log.warning(f"  cve-check failed on {module}: "
+                                f"{str(e)[:150]}")
+
+                try:
+                    run_theo_goal(
+                        project_path, module, package_name, "snapshot",
+                        extra_flags=f"-Dtheo.snapshotLabel={commit[:8]}",
+                    )
+                except RuntimeError as e:
+                    log.warning(f"  snapshot failed on {module}: "
+                                f"{str(e)[:150]}")
+
+                try:
+                    run_theo_goal(project_path, module, package_name,
+                                  "history", timeout=HISTORY_TIMEOUT)
+                except RuntimeError as e:
+                    log.warning(f"  history failed on {module}: "
+                                f"{str(e)[:150]}")
+
+                # ---- copy reports ----
+                commit_dir, hist_dir = _report_dirs(
+                    project_report_base, module, commit)
+                copy_commit_reports(project_path, module, commit_dir)
+                copy_history_reports(project_path, module, hist_dir)
+
+            result["durationSeconds"] = round(time.time() - t)
+            result["analysisResult"] = "success"
+            log.info(f"  OK {commit[:8]} ({result['durationSeconds']}s)")
+
+        except Exception as e:
+            result["analysisResult"] = "failed"
+            result["error"] = str(e)[:500]
+            log.error(f"  FAILED {commit[:8]}: {str(e)[:200]}")
+
+        if post_command:
+            _safe_run(post_command, project_path)
+
+        tracking["commits"].append(result)
+        save_tracking(tracking, project_report_base)
+        done_shas.add(commit)
+
+    # ---- summary ----
+    success = sum(1 for c in tracking["commits"]
+                  if c.get("analysisResult") == "success")
+    failed = sum(1 for c in tracking["commits"]
+                 if c.get("analysisResult") == "failed")
+    build_fail = sum(1 for c in tracking["commits"]
+                     if c.get("analysisResult") == "build_failed")
+    no_dep = len(tracking["noDepChangeCommits"])
+
+    log.info(f"  Summary: {success} analyzed, {failed} failed, "
+             f"{build_fail} build failures, {no_dep} no-dep skips")
+
+
+def _safe_run(cmd, cwd):
+    try:
+        run_cmd(cmd, cwd=cwd, label="postCommand")
+    except RuntimeError as e:
+        log.warning(f"  postCommand failed: {str(e)[:150]}")
+
+
+
+# Entry point
+def main():
+    setup_logging()
+    input_path = (Path(sys.argv[1]) if len(sys.argv) > 1
+                  else DEFAULT_INPUT)
+    if not input_path.exists():
+        log.error(f"Input file not found: {input_path}")
+        sys.exit(1)
+
+    with open(input_path) as f:
+        projects = json.load(f)
+
+    log.info(f"Loaded {len(projects)} project(s) from {input_path}")
+
+    for i, entry in enumerate(projects):
+        project_name = Path(entry["projectPath"]).name
+        log.info(f"[{i+1}/{len(projects)}] {project_name}")
+        try:
+            process_project(entry)
+        except Exception as e:
+            log.error(f"  Project failed entirely: {str(e)[:300]}")
+
+    log.info("All projects processed")
+    log.info(f"Reports: {REPORTS_BASE}")
+    log.info(f"Log: {LOG_FILE}")
+
+
+if __name__ == "__main__":
+    main()
