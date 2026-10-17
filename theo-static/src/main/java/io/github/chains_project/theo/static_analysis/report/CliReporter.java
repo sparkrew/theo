@@ -108,7 +108,7 @@ public class CliReporter {
                     .count();
             if (reachableCount > 0) {
                 if (!anyReachableChange) {
-                    log.info("Changes to client-reachable APIs:");
+                    log.info("Changes to reachable APIs:");
                     anyReachableChange = true;
                 }
                 log.info("  + " + added.gav() + " (" + reachableCount + " reachable sensitive APIs)");
@@ -124,7 +124,7 @@ public class CliReporter {
                     .count();
             if (addedReachable > 0 || removedReachable > 0) {
                 if (!anyReachableChange) {
-                    log.info("Changes to client-reachable APIs:");
+                    log.info("Changes to reachable APIs:");
                     anyReachableChange = true;
                 }
                 log.info("  ~ " + mod.gav() + " (" + addedReachable + " added, " + removedReachable + " removed)");
@@ -132,7 +132,7 @@ public class CliReporter {
         }
 
         if (!anyReachableChange) {
-            log.info("No changes to client-reachable APIs since the last run.");
+            log.info("No changes to reachable APIs since the last run.");
         }
     }
 

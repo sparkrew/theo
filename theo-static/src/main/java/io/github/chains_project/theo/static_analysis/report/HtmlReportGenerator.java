@@ -180,7 +180,7 @@ public class HtmlReportGenerator {
         }
 
         writeReport(template, "Theo — all dependencies", content,
-            "For full call paths, see reachable.html.", reportDir.resolve("all-dependencies.html"));
+            "For more details on call paths, see reachable.html.", reportDir.resolve("all-dependencies.html"));
     }
 
     // --- reachable.html ---
@@ -197,7 +197,7 @@ public class HtmlReportGenerator {
         Map<String, DependencyReport> reportsByGav = indexByGav(reachableDeps);
 
         content.append("<p class=\"stats\">").append(reachableDeps.size())
-            .append(" dependencies with client-reachable sensitive APIs</p>\n");
+            .append(" dependencies with reachable sensitive APIs</p>\n");
 
         // Group: category -> subcategory -> depGav -> list of reachable entries
         Map<String, Map<String, Map<String, List<SensitiveApiEntry>>>> grouped = new LinkedHashMap<>();
@@ -276,7 +276,7 @@ public class HtmlReportGenerator {
             }
         }
 
-        writeReport(template, "Theo — client-reachable APIs", content,
+        writeReport(template, "Theo — reachable APIs", content,
             null, reportDir.resolve("reachable.html"));
     }
 
@@ -293,7 +293,7 @@ public class HtmlReportGenerator {
             content.append("<p class=\"stats\">No changes detected since the last run.</p>\n");
         } else if (reachableOnly) {
             content.append("<div class=\"reachable-section\">\n");
-            content.append("<h2>Changes to client-reachable APIs</h2>\n");
+            content.append("<h2>Changes to reachable APIs</h2>\n");
             buildChangesSection(content, changeSet, summary, true, previousSummary);
             content.append("</div>\n");
         } else {
@@ -301,7 +301,7 @@ public class HtmlReportGenerator {
             buildChangesSection(content, changeSet, summary, false, previousSummary);
 
             content.append("<div class=\"reachable-section\">\n");
-            content.append("<h2>Changes to client-reachable APIs</h2>\n");
+            content.append("<h2>Changes to reachable APIs</h2>\n");
             buildChangesSection(content, changeSet, summary, true, previousSummary);
             content.append("</div>\n");
         }

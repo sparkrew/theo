@@ -95,7 +95,7 @@ public class AnalysisOrchestrator {
         // Step 2: Run client reachability analysis
         // Uses findReachableEntries to get both the reachable keys and the full
         // client-rooted entries (with paths starting from client methods).
-        log.info("Running client reachability analysis on {}", projectJarPath);
+        log.info("Running client project reachability analysis on {}", projectJarPath);
         Map<String, List<SensitiveApiEntry>> rawEntries = reachabilityAnalyzer.findReachableEntries(
                 projectJarPath, packageNames, packageMapPath, depsDir
         );
