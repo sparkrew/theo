@@ -17,10 +17,10 @@
         </developer>
     </developers>
     <modules>
-        <module>theo-static</module>
+        <module>theo-static-maven-plugin</module>
         <module>theo-commons</module>
         <module>package-miner</module>
-        <module>package-static-analyzer</module>
+        <module>package-analyzer</module>
     </modules>
 
     <properties>
