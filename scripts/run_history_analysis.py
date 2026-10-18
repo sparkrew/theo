@@ -85,12 +85,14 @@ FIVE_YEARS = timedelta(days=5 * 365)
 
 REACHABLE_FLAG = "-Dtheo.reachableOnly=true"
 HISTORY_FILENAMES = {"history.html", "history.json"}
+THEO_DIR = Path.home() / ".theo"
 
 
 
 # Shared utilities
-def run_cmd(cmd, cwd, timeout=120, label="command"):
-    log.info(f"  [{label}] {cmd[:120]}")
+def run_cmd(cmd, cwd, timeout=120, label="command", quiet=False):
+    if not quiet:
+        log.info(f"  [{label}] {cmd[:120]}")
     try:
         result = subprocess.run(
             cmd, shell=True, cwd=str(cwd),
@@ -207,7 +209,8 @@ def get_changed_poms(project_path, commit):
         f"-- ':(glob)**/pom.xml' 'pom.xml'"
     )
     try:
-        r = run_cmd(cmd, cwd=project_path, timeout=60, label="diff-tree poms")
+        r = run_cmd(cmd, cwd=project_path, timeout=60, label="diff-tree poms",
+                    quiet=True)
         return [f.strip() for f in r.stdout.strip().splitlines()
                 if f.strip().endswith("pom.xml")]
     except RuntimeError:
@@ -270,6 +273,15 @@ def pom_path_to_module(pom_path):
 
 
 # Module resolution
+def get_all_modules(project_path):
+    """Return all modules in the project. For multi-module projects, returns
+    all submodules; for single-module projects, returns ['.']."""
+    subs = get_submodules(project_path)
+    if subs:
+        return sorted(subs)
+    return ["."]
+
+
 def resolve_modules(project_path, changed_modules):
     """Expand root ('.') to all submodules on a multi-module project."""
     resolved = set()
@@ -341,6 +353,87 @@ def copy_history_reports(project_path, module, dest):
 
 
 
+# Stats collection — sensitive API reachability
+def read_stats_json(project_path, module):
+    src = _module_report_src(project_path, module) / "stats.json"
+    if not src.exists():
+        return None
+    try:
+        with open(src) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def find_latest_snapshot(project_path, module):
+    """Find the most recent snapshot JSON under ~/.theo/history/ for this module."""
+    pom = project_path / (module if module != "." else "") / "pom.xml"
+    if not pom.exists():
+        return None
+    try:
+        tree = ET.parse(pom)
+        root = tree.getroot()
+        ns = ""
+        if root.tag.startswith("{"):
+            ns = root.tag.split("}")[0] + "}"
+        gid = (root.findtext(f"{ns}groupId") or "").strip()
+        aid = (root.findtext(f"{ns}artifactId") or "").strip()
+        if not gid:
+            parent = root.find(f"{ns}parent")
+            if parent is not None:
+                gid = (parent.findtext(f"{ns}groupId") or "").strip()
+    except ET.ParseError:
+        return None
+    if not gid or not aid:
+        return None
+    snap_dir = THEO_DIR / "history" / f"{gid}__{aid}"
+    if not snap_dir.exists():
+        return None
+    snapshots = sorted(snap_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
+    return snapshots[-1] if snapshots else None
+
+
+def collect_reachability_summary(project_path, module):
+    """Build a compact reachability summary for one module."""
+    summary = {}
+
+    stats = read_stats_json(project_path, module)
+    if stats and "reachable" in stats:
+        r = stats["reachable"]
+        summary["reachableDeps"] = r.get("totalDeps", 0)
+        summary["reachableDepsByCategory"] = {
+            cat: info.get("deps", 0)
+            for cat, info in r.get("byCategory", {}).items()
+        }
+
+    snap_path = find_latest_snapshot(project_path, module)
+    if snap_path:
+        try:
+            with open(snap_path) as f:
+                snap = json.load(f)
+            apis = snap.get("reachableApis", [])
+            summary["reachableApis"] = len(apis)
+
+            by_cat = {}
+            by_dep = {}
+            for entry in apis:
+                cat = entry.get("category", "OTHER")
+                by_cat[cat] = by_cat.get(cat, 0) + 1
+                dep_key = (f"{entry.get('depGroupId', '')}:"
+                           f"{entry.get('depArtifactId', '')}:"
+                           f"{entry.get('depVersion', '')}")
+                by_dep[dep_key] = by_dep.get(dep_key, 0) + 1
+
+            summary["reachableApisByCategory"] = by_cat
+            summary["depsDetail"] = dict(
+                sorted(by_dep.items(), key=lambda x: -x[1])
+            )
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    return summary if summary else None
+
+
 # Tracking / results persistence
 def _history_path(project_report_base):
     return project_report_base / "analysis_results.json"
@@ -381,29 +474,42 @@ def process_project(entry):
     no_dep_shas = set(tracking["noDepChangeCommits"])
 
     # ---- discover commits ----
+    # Always start with lastCommit itself, then subsequent pom-changing commits
+    commits_to_analyze = []
+    if last_commit and last_commit not in done_shas:
+        commits_to_analyze.append(last_commit)
+
     pom_commits = get_pom_commits(project_path, last_commit)
     log.info(f"  {len(pom_commits)} commits touch pom.xml")
+    for c in pom_commits:
+        if c not in commits_to_analyze:
+            commits_to_analyze.append(c)
 
-    for commit in pom_commits:
+    for commit in commits_to_analyze:
         if commit in done_shas or commit in no_dep_shas:
             continue
 
-        # Strict check: only commits where <dependency> elements changed
-        changed_poms = get_changed_poms(project_path, commit)
-        dep_modules = []
-        for pom in changed_poms:
-            if has_dependency_changes(project_path, commit, pom):
-                dep_modules.append(pom_path_to_module(pom))
+        is_baseline = (commit == last_commit)
 
-        if not dep_modules:
-            log.debug(f"  {commit[:8]}: pom changed, no dep changes – skip")
-            tracking["noDepChangeCommits"].append(commit)
-            save_tracking(tracking, project_report_base)
-            continue
+        if not is_baseline:
+            # Strict check: only commits where <dependency> elements changed
+            changed_poms = get_changed_poms(project_path, commit)
+            dep_modules = []
+            for pom in changed_poms:
+                if has_dependency_changes(project_path, commit, pom):
+                    dep_modules.append(pom_path_to_module(pom))
+
+            if not dep_modules:
+                log.debug(f"  {commit[:8]}: pom changed, no dep changes – skip")
+                tracking["noDepChangeCommits"].append(commit)
+                save_tracking(tracking, project_report_base)
+                continue
+        else:
+            dep_modules = ["(baseline)"]
 
         info = git_info(project_path, commit)
-        log.info(f"  Analyzing {commit[:8]} ({info.get('date','?')}) "
-                 f"– dep changes in: {dep_modules}")
+        label = "BASELINE" if is_baseline else f"dep changes in: {dep_modules}"
+        log.info(f"  Analyzing {commit[:8]} ({info.get('date','?')}) – {label}")
 
         result = {
             "sha": commit,
@@ -441,12 +547,13 @@ def process_project(entry):
                     _safe_run(post_command, project_path)
                 continue
 
-            # ---- resolve modules ----
-            modules = resolve_modules(project_path, dep_modules)
+            # ---- always run all modules ----
+            modules = get_all_modules(project_path)
             result["analyzedModules"] = modules
 
             # ---- run Theo on each module ----
             t = time.time()
+            module_stats = {}
             for module in modules:
                 try:
                     run_theo_goal(project_path, module, package_name,
@@ -477,6 +584,14 @@ def process_project(entry):
                 copy_commit_reports(project_path, module, commit_dir)
                 copy_history_reports(project_path, module, hist_dir)
 
+                # ---- collect reachability stats ----
+                mod_summary = collect_reachability_summary(
+                    project_path, module)
+                if mod_summary:
+                    module_stats[module] = mod_summary
+
+            if module_stats:
+                result["reachability"] = module_stats
             result["durationSeconds"] = round(time.time() - t)
             result["analysisResult"] = "success"
             log.info(f"  OK {commit[:8]} ({result['durationSeconds']}s)")
