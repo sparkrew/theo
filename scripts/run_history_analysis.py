@@ -10,7 +10,7 @@ snapshots on disk so that consecutive runs compare with the previous state.
 Usage:
     python3 run_history_analysis.py [path/to/client_project_histories.json]
 
-Default input: /Tmp/gamageyo/theo-all/client-project-reports/client_project_histories.json
+Default input: theo-all/client-project-reports/client_project_histories.json
 
 Input JSON format (array):
   [
@@ -65,12 +65,12 @@ def setup_logging():
     log.addHandler(ch)
 
 
-REPORTS_BASE = Path("/Tmp/gamageyo/theo-all/client-project-reports/history")
+REPORTS_BASE = Path("/home/yogya/projects/def-baudry/yogya/theo-all/client-results/history")
 DEFAULT_INPUT = Path(
-    "/Tmp/gamageyo/theo-all/client-project-reports/client_project_histories.json"
+    "/home/yogya/projects/def-baudry/yogya/theo-all/theo/client_project_histories.json"
 )
 
-os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx40g"
+os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx64g"
 
 THEO_PLUGIN = "io.github.sparkrew:theo-static-maven-plugin"
 MVN_BUILD = (
@@ -424,8 +424,17 @@ def process_project(entry):
             except RuntimeError as e:
                 log.warning(f"  Build failed for {commit[:8]}, skipping")
                 log.debug(f"  {str(e)[:300]}")
+                error_file = project_report_base / commit[:8] / "error.txt"
+                error_file.parent.mkdir(parents=True, exist_ok=True)
+                error_file.write_text(
+                    f"Commit: {commit}\n"
+                    f"Step: build\n"
+                    f"Time: {datetime.now().isoformat()}\n\n"
+                    f"{e}\n"
+                )
                 result["analysisResult"] = "build_failed"
                 result["error"] = str(e)[:500]
+                result["errorFile"] = str(error_file)
                 tracking["commits"].append(result)
                 save_tracking(tracking, project_report_base)
                 if post_command:
