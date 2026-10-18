@@ -304,6 +304,9 @@ def get_all_modules(project_path):
         return leaves
 
     result = _collect(project_path)
+    import re
+    test_pat = re.compile(r'\btest(?:s|ing)?\b', re.IGNORECASE)
+    result = [m for m in result if not test_pat.search(m.split("/")[-1])]
     return sorted(set(result))
 
 
