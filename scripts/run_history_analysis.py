@@ -87,6 +87,9 @@ REACHABLE_FLAG = "-Dtheo.reachableOnly=true"
 HISTORY_FILENAMES = {"history.html", "history.json"}
 THEO_DIR = Path.home() / ".theo"
 
+import re
+TEST_MODULE_PAT = re.compile(r'\btest(?:s|ing)?\b', re.IGNORECASE)
+
 
 
 # Shared utilities
@@ -304,9 +307,8 @@ def get_all_modules(project_path):
         return leaves
 
     result = _collect(project_path)
-    import re
-    test_pat = re.compile(r'\btest(?:s|ing)?\b', re.IGNORECASE)
-    result = [m for m in result if not test_pat.search(m.split("/")[-1])]
+    result = [m for m in result
+              if not TEST_MODULE_PAT.search(m.split("/")[-1])]
     return sorted(set(result))
 
 
@@ -528,8 +530,11 @@ def process_project(entry):
             changed_poms = get_changed_poms(project_path, commit)
             dep_modules = []
             for pom in changed_poms:
+                mod = pom_path_to_module(pom)
+                if any(TEST_MODULE_PAT.search(part) for part in mod.split("/")):
+                    continue
                 if has_dependency_changes(project_path, commit, pom):
-                    dep_modules.append(pom_path_to_module(pom))
+                    dep_modules.append(mod)
 
             if not dep_modules:
                 log.debug(f"  {commit[:8]}: pom changed, no dep changes – skip")
