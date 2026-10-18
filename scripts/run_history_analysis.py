@@ -70,9 +70,9 @@ DEFAULT_INPUT = Path(
     "/home/yogya/projects/def-baudry/yogya/theo-all/theo/client_project_histories.json"
 )
 
-TMPDIR = Path(os.environ.get("TMPDIR", "/tmp"))
-M2_REPO = TMPDIR / "m2-repository"
-THEO_CACHE = TMPDIR / "theo-cache"
+TMPDIR = os.environ.get("TMPDIR", "/tmp")
+M2_REPO = f"{TMPDIR}/m2-repository"
+THEO_CACHE = Path("/home/yogya/projects/def-baudry/yogya/theo-all/client-results/cache")
 
 os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx64g"
 
