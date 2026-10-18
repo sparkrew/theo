@@ -70,12 +70,17 @@ DEFAULT_INPUT = Path(
     "/home/yogya/projects/def-baudry/yogya/theo-all/theo/client_project_histories.json"
 )
 
+TMPDIR = Path(os.environ.get("TMPDIR", "/tmp"))
+M2_REPO = TMPDIR / "m2-repository"
+THEO_CACHE = TMPDIR / "theo-cache"
+
 os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx64g"
 
 THEO_PLUGIN = "io.github.sparkrew:theo-static-maven-plugin"
 MVN_BUILD = (
-    "mvn clean install -DskipTests -Dcheckstyle.skip=true "
-    "-Dspotless.check.skip=true -Denforcer.skip=true"
+    f"mvn clean install -DskipTests -Dcheckstyle.skip=true "
+    f"-Dspotless.check.skip=true -Denforcer.skip=true "
+    f"-Dmaven.repo.local={M2_REPO}"
 )
 
 BUILD_TIMEOUT = 7200     # 2 hours
@@ -85,7 +90,7 @@ FIVE_YEARS = timedelta(days=5 * 365)
 
 REACHABLE_FLAG = "-Dtheo.reachableOnly=true"
 HISTORY_FILENAMES = {"history.html", "history.json"}
-THEO_DIR = Path.home() / ".theo"
+THEO_DIR = THEO_CACHE
 
 import re
 TEST_MODULE_PAT = re.compile(r'\btest(?:s|ing)?\b', re.IGNORECASE)
@@ -335,6 +340,8 @@ def run_theo_goal(project_path, module, package_name, goal,
     cmd = (
         f"mvn {THEO_PLUGIN}:{goal} -pl {pl} "
         f"-Dtheo.packageNames={package_name} {REACHABLE_FLAG} "
+        f"-Dtheo.cacheDir={THEO_CACHE} "
+        f"-Dmaven.repo.local={M2_REPO} "
         f"{extra_flags}"
     ).strip()
     run_cmd(cmd, cwd=project_path, timeout=timeout,
