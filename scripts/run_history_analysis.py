@@ -232,14 +232,24 @@ def _file_at_commit(project_path, commit, file_path):
         return None
 
 
+def _extract_properties(root, ns):
+    """Return frozenset of (name, value) from <properties>."""
+    props = set()
+    for prop_block in root.findall(f".//{ns}properties"):
+        for child in prop_block:
+            tag = child.tag.replace(ns, "") if ns else child.tag
+            props.add((tag, (child.text or "").strip()))
+    return frozenset(props)
+
+
 def _extract_dependencies(pom_xml):
     """Return frozenset of (groupId, artifactId, version, scope) from all
-    <dependency> elements anywhere in the pom (including dependencyManagement,
-    plugin deps, profile deps, etc.)."""
+    <dependency> elements, plus all <properties> entries (which often hold
+    version variables)."""
     try:
         root = ET.fromstring(pom_xml)
     except ET.ParseError:
-        return frozenset()
+        return frozenset(), frozenset()
     ns = ""
     if root.tag.startswith("{"):
         ns = root.tag.split("}")[0] + "}"
@@ -250,19 +260,22 @@ def _extract_dependencies(pom_xml):
         ver = (dep.findtext(f"{ns}version") or "").strip()
         scope = (dep.findtext(f"{ns}scope") or "").strip()
         deps.add((gid, aid, ver, scope))
-    return frozenset(deps)
+    props = _extract_properties(root, ns)
+    return frozenset(deps), props
 
 
 def has_dependency_changes(project_path, commit, pom_path):
-    """True when actual <dependency> entries differ between *commit* and its
-    parent."""
+    """True when <dependency> entries or <properties> (which often hold
+    version variables) differ between *commit* and its parent."""
     cur = _file_at_commit(project_path, commit, pom_path)
     prev = _file_at_commit(project_path, f"{commit}^", pom_path)
     if cur is None and prev is None:
         return False
     if cur is None or prev is None:
         return True  # added or deleted
-    return _extract_dependencies(cur) != _extract_dependencies(prev)
+    cur_deps, cur_props = _extract_dependencies(cur)
+    prev_deps, prev_props = _extract_dependencies(prev)
+    return cur_deps != prev_deps or cur_props != prev_props
 
 
 def pom_path_to_module(pom_path):
@@ -274,12 +287,24 @@ def pom_path_to_module(pom_path):
 
 # Module resolution
 def get_all_modules(project_path):
-    """Return all modules in the project. For multi-module projects, returns
-    all submodules; for single-module projects, returns ['.']."""
-    subs = get_submodules(project_path)
-    if subs:
-        return sorted(subs)
-    return ["."]
+    """Return all leaf modules in the project. Recurses into aggregator
+    modules that themselves declare submodules."""
+    def _collect(base, prefix=""):
+        subs = get_submodules(base)
+        if not subs:
+            return [prefix or "."]
+        leaves = []
+        for sub in subs:
+            full = f"{prefix}/{sub}" if prefix else sub
+            child_path = base / sub
+            if child_path.exists():
+                leaves.extend(_collect(child_path, full))
+            else:
+                leaves.append(full)
+        return leaves
+
+    result = _collect(project_path)
+    return sorted(set(result))
 
 
 def resolve_modules(project_path, changed_modules):
@@ -320,11 +345,15 @@ def _module_report_src(project_path, module):
 
 
 def _report_dirs(project_report_base, module, commit_sha):
-    """Return (commit_report_dir, history_dir)."""
+    """Return (commit_report_dir, history_dir).
+
+    Layout:  <project>/<commit8>/<module>/   — per-commit reports
+             <project>/<module>/             — accumulated history
+    """
     short = commit_sha[:8]
     if module == ".":
         return project_report_base / short, project_report_base
-    return (project_report_base / module / short,
+    return (project_report_base / short / module,
             project_report_base / module)
 
 
