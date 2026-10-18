@@ -361,18 +361,4 @@ public class ClientReachabilityAnalyzer {
         }
         return packageName;
     }
-
-    /**
-     * Splits a comma-separated package name string into individual package names.
-     * Handles both single values and multiple comma-separated values.
-     */
-    private List<String> parsePackageNames(String packageName) {
-        if (packageName == null || packageName.isBlank()) {
-            return List.of();
-        }
-        return Arrays.stream(packageName.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .toList();
-    }
 }
