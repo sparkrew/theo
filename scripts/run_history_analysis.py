@@ -19,9 +19,18 @@ Input JSON format (array):
       "lastCommit": "027afe12...",
       "packageName": "it.infn.mw.iam",
       "preCommand": "git stash apply",
-      "postCommand": "git reset --hard HEAD"
+      "postCommand": "git reset --hard HEAD",
+      "javaVersions": [
+        {"until": "8802b7e2...", "version": "17.0.20-tem"},
+        {"version": "21.0.12+1.1-tem"}
+      ]
     }
   ]
+
+  javaVersions: ordered list of Java versions to use. Each entry has a
+  "version" (sdkman identifier) and an optional "until" commit SHA.
+  The version applies up to and including that commit; the last entry
+  (without "until") applies to all remaining commits.
 
 Report layout:
   <REPORTS_BASE>/<project>/
@@ -74,6 +83,7 @@ TMPDIR = os.environ.get("TMPDIR", "/tmp")
 M2_REPO = f"{TMPDIR}/m2-repository"
 THEO_CACHE = Path("/home/yogya/projects/def-baudry/yogya/theo-all/client-results/cache")
 
+os.environ.pop("JAVA_TOOL_OPTIONS", None)
 os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx64g"
 
 THEO_PLUGIN = "io.github.sparkrew:theo-static-maven-plugin"
@@ -115,6 +125,43 @@ def run_cmd(cmd, cwd, timeout=120, label="command", quiet=False):
             f"{label} failed (exit {result.returncode}):\n{out}\n{err}"
         )
     return result
+
+
+def select_java_version(java_versions, commit, project_path):
+    """Pick the right Java version for a commit and set JAVA_HOME.
+
+    java_versions is a list of {"version": "...", "until": "sha"} entries.
+    Returns the version string used, or None if no switching configured.
+    """
+    if not java_versions:
+        return None
+
+    chosen = java_versions[-1]["version"]  # default: last entry
+    for entry in java_versions:
+        until = entry.get("until")
+        if not until:
+            continue
+        try:
+            r = subprocess.run(
+                f"git merge-base --is-ancestor {commit} {until}",
+                shell=True, cwd=str(project_path),
+                capture_output=True, timeout=30,
+            )
+            if r.returncode == 0:
+                chosen = entry["version"]
+                break
+        except Exception:
+            pass
+
+    sdkman_dir = Path.home() / ".sdkman"
+    java_home = sdkman_dir / "candidates" / "java" / chosen
+    if java_home.exists():
+        os.environ["JAVA_HOME"] = str(java_home)
+        os.environ["PATH"] = f"{java_home / 'bin'}:" + os.environ.get("PATH", "")
+        log.info(f"  Java: {chosen}")
+    else:
+        log.warning(f"  Java version {chosen} not found at {java_home}")
+    return chosen
 
 
 def git_checkout(project_path, commit):
@@ -505,6 +552,7 @@ def process_project(entry):
     package_name = entry["packageName"]
     pre_command = entry.get("preCommand", "")
     post_command = entry.get("postCommand", "")
+    java_versions = entry.get("javaVersions", [])
 
     project_name = project_path.name
     project_report_base = REPORTS_BASE / project_name
@@ -564,6 +612,9 @@ def process_project(entry):
         try:
             # ---- checkout ----
             git_checkout(project_path, commit)
+
+            # ---- select Java version ----
+            select_java_version(java_versions, commit, project_path)
 
             if pre_command:
                 run_cmd(pre_command, cwd=project_path, label="preCommand")
