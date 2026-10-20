@@ -12,15 +12,20 @@
 # --- Modules ---
 module purge
 module load StdEnv/2023
-module load java/17
-module load maven/3.9
-module load python/3.11
+module load maven/3.9.10
+module load python/3.11.5
 
-# --- SDKMAN (if you use multiple Java versions) ---
+# --- SDKMAN (manages Java 17 + 21 switching) ---
 export SDKMAN_DIR="$HOME/.sdkman"
 if [ -f "$SDKMAN_DIR/bin/sdkman-init.sh" ]; then
     source "$SDKMAN_DIR/bin/sdkman-init.sh"
+else
+    echo "ERROR: sdkman not found at $SDKMAN_DIR" >&2
+    exit 1
 fi
+
+# module load maven sets JAVA_HOME to its bundled java 17 — override with sdkman
+sdk use java 21.0.12+1.1-tem
 
 # --- Python venv ---
 THEO_ROOT="$HOME/projects/def-baudry/yogya/theo-all/theo"
