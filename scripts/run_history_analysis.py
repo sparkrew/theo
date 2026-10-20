@@ -93,8 +93,8 @@ DEFAULT_INPUT = Path(
     "/home/yogya/projects/def-baudry/yogya/theo-all/theo/client_project_histories.json"
 )
 
-TMPDIR = os.environ.get("TMPDIR", "/tmp")
-M2_REPO = f"{TMPDIR}/m2-repository"
+SCRATCH = os.environ.get("SCRATCH", "/scratch")
+M2_REPO = f"{SCRATCH}/m2-repository"
 THEO_CACHE = Path("/home/yogya/projects/def-baudry/yogya/theo-all/client-results/cache")
 THEO_HISTORY = Path("/home/yogya/projects/def-baudry/yogya/theo-all/client-results/history-snapshots")
 
