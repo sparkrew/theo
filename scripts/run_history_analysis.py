@@ -20,12 +20,21 @@ Input JSON format (array):
       "packageName": "it.infn.mw.iam",
       "preCommand": "git stash apply",
       "postCommand": "git reset --hard HEAD",
+      "modules": ["lang/java/avro", "lang/java/ipc"],
+      "watchPoms": ["avro-parent", "lang/java"],
       "javaVersions": [
         {"until": "8802b7e2...", "version": "17.0.20-tem"},
         {"version": "21.0.12+1.1-tem"}
       ]
     }
   ]
+
+  modules: optional list of modules to run Theo on. If omitted, discovers
+  all leaf modules.
+
+  watchPoms: optional list of additional module paths whose pom changes
+  should trigger analysis (e.g. parent poms like "avro-parent"). Theo
+  does NOT run on these — they only affect which commits are selected.
 
   javaVersions: ordered list of Java versions to use. Each entry has a
   "version" (sdkman identifier) and an optional "until" commit SHA.
@@ -34,20 +43,19 @@ Input JSON format (array):
 
 Report layout:
   <REPORTS_BASE>/<project>/
-      history.json                  -- analysis tracking / results
-      history.html                  -- Theo history (single-module)
+      analysis_results.json         -- tracking / results
       <commit_sha8>/                -- per-commit reports
-          *.json / *.html           -- reachable, changes, stats, …
-  Multi-module:
-      <module>/
+          <module>/
+              *.json / *.html       -- reachable, changes, stats, …
+      <module>/                     -- accumulated history
           history.html
-          <commit_sha8>/
-              *.json / *.html
+          history.json
 """
 
 import json
 import logging
 import os
+import re
 import subprocess
 import shutil
 import xml.etree.ElementTree as ET
@@ -102,8 +110,8 @@ REACHABLE_FLAG = "-Dtheo.reachableOnly=true"
 HISTORY_FILENAMES = {"history.html", "history.json"}
 THEO_DIR = THEO_CACHE
 
-import re
 TEST_MODULE_PAT = re.compile(r'\btest(?:s|ing)?\b', re.IGNORECASE)
+_ORIGINAL_PATH = os.environ.get("PATH", "")
 
 
 
@@ -157,7 +165,7 @@ def select_java_version(java_versions, commit, project_path):
     java_home = sdkman_dir / "candidates" / "java" / chosen
     if java_home.exists():
         os.environ["JAVA_HOME"] = str(java_home)
-        os.environ["PATH"] = f"{java_home / 'bin'}:" + os.environ.get("PATH", "")
+        os.environ["PATH"] = f"{java_home / 'bin'}:{_ORIGINAL_PATH}"
         log.info(f"  Java: {chosen}")
     else:
         log.warning(f"  Java version {chosen} not found at {java_home}")
@@ -364,20 +372,6 @@ def get_all_modules(project_path):
     return sorted(set(result))
 
 
-def resolve_modules(project_path, changed_modules):
-    """Expand root ('.') to all submodules on a multi-module project."""
-    resolved = set()
-    for mod in changed_modules:
-        if mod == ".":
-            subs = get_submodules(project_path)
-            if subs:
-                resolved.update(subs)
-            else:
-                resolved.add(".")
-        else:
-            resolved.add(mod)
-    return sorted(resolved)
-
 
 
 # Theo execution
@@ -453,8 +447,13 @@ def read_stats_json(project_path, module):
         return None
 
 
-def find_latest_snapshot(project_path, module):
-    """Find the most recent snapshot JSON under ~/.theo/history/ for this module."""
+def find_snapshot(project_path, module, commit_label=None):
+    """Find a snapshot JSON under the Theo history dir for this module.
+
+    If *commit_label* is given, matches the snapshot whose filename contains
+    that label (e.g. the commit sha prefix). Otherwise returns the most
+    recently written snapshot.
+    """
     pom = project_path / (module if module != "." else "") / "pom.xml"
     if not pom.exists():
         return None
@@ -477,11 +476,16 @@ def find_latest_snapshot(project_path, module):
     snap_dir = THEO_DIR / "history" / f"{gid}__{aid}"
     if not snap_dir.exists():
         return None
+    if commit_label:
+        matches = [p for p in snap_dir.glob("*.json")
+                   if commit_label in p.name]
+        if matches:
+            return matches[0]
     snapshots = sorted(snap_dir.glob("*.json"), key=lambda p: p.stat().st_mtime)
     return snapshots[-1] if snapshots else None
 
 
-def collect_reachability_summary(project_path, module):
+def collect_reachability_summary(project_path, module, commit_label=None):
     """Build a compact reachability summary for one module."""
     summary = {}
 
@@ -494,7 +498,7 @@ def collect_reachability_summary(project_path, module):
             for cat, info in r.get("byCategory", {}).items()
         }
 
-    snap_path = find_latest_snapshot(project_path, module)
+    snap_path = find_snapshot(project_path, module, commit_label)
     if snap_path:
         try:
             with open(snap_path) as f:
@@ -553,6 +557,8 @@ def process_project(entry):
     pre_command = entry.get("preCommand", "")
     post_command = entry.get("postCommand", "")
     java_versions = entry.get("javaVersions", [])
+    selected_modules = entry.get("modules", [])
+    watch_poms = entry.get("watchPoms", [])
 
     project_name = project_path.name
     project_report_base = REPORTS_BASE / project_name
@@ -575,10 +581,11 @@ def process_project(entry):
             commits_to_analyze.append(c)
 
     for commit in commits_to_analyze:
-        if commit in done_shas or commit in no_dep_shas:
-            continue
-
         is_baseline = (commit == last_commit)
+        if commit in done_shas:
+            continue
+        if commit in no_dep_shas and not is_baseline:
+            continue
 
         if not is_baseline:
             # Strict check: only commits where <dependency> elements changed
@@ -588,6 +595,15 @@ def process_project(entry):
                 mod = pom_path_to_module(pom)
                 if any(TEST_MODULE_PAT.search(part) for part in mod.split("/")):
                     continue
+                if selected_modules or watch_poms:
+                    tracked = selected_modules + watch_poms
+                    is_root = (mod == ".")
+                    is_relevant = any(
+                        mod == m                        # exact module
+                        or m.startswith(mod + "/")      # parent of a tracked module
+                        for m in tracked)
+                    if not is_root and not is_relevant:
+                        continue
                 if has_dependency_changes(project_path, commit, pom):
                     dep_modules.append(mod)
 
@@ -642,8 +658,8 @@ def process_project(entry):
                     _safe_run(post_command, project_path)
                 continue
 
-            # ---- always run all modules ----
-            modules = get_all_modules(project_path)
+            # ---- select modules to analyze ----
+            modules = selected_modules if selected_modules else get_all_modules(project_path)
             result["analyzedModules"] = modules
 
             # ---- run Theo on each module ----
@@ -681,7 +697,7 @@ def process_project(entry):
 
                 # ---- collect reachability stats ----
                 mod_summary = collect_reachability_summary(
-                    project_path, module)
+                    project_path, module, commit_label=commit[:8])
                 if mod_summary:
                     module_stats[module] = mod_summary
 
