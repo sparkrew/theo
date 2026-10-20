@@ -99,7 +99,7 @@ THEO_CACHE = Path("/home/yogya/projects/def-baudry/yogya/theo-all/client-results
 THEO_HISTORY = Path("/home/yogya/projects/def-baudry/yogya/theo-all/client-results/history-snapshots")
 
 os.environ.pop("JAVA_TOOL_OPTIONS", None)
-os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx64g"
+os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx32g"
 
 THEO_PLUGIN = "io.github.sparkrew:theo-static-maven-plugin"
 MVN_BUILD = (
