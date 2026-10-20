@@ -36,6 +36,12 @@ Input JSON format (array):
   should trigger analysis (e.g. parent poms like "avro-parent"). Theo
   does NOT run on these — they only affect which commits are selected.
 
+  oldReportsDir: optional path to a previous run's report directory.
+  oldCacheDir: optional path to a previous run's Theo cache directory.
+  oldSnapshotsDir: optional path to a previous run's snapshot directory.
+  When set, commits already present in the old reports are copied instead
+  of re-analyzed. Only reports for the selected modules are copied.
+
   javaVersions: ordered list of Java versions to use. Each entry has a
   "version" (sdkman identifier) and an optional "until" commit SHA.
   The version applies up to and including that commit; the last entry
@@ -90,6 +96,7 @@ DEFAULT_INPUT = Path(
 TMPDIR = os.environ.get("TMPDIR", "/tmp")
 M2_REPO = f"{TMPDIR}/m2-repository"
 THEO_CACHE = Path("/home/yogya/projects/def-baudry/yogya/theo-all/client-results/cache")
+THEO_HISTORY = Path("/home/yogya/projects/def-baudry/yogya/theo-all/client-results/history-snapshots")
 
 os.environ.pop("JAVA_TOOL_OPTIONS", None)
 os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx64g"
@@ -108,7 +115,7 @@ FIVE_YEARS = timedelta(days=5 * 365)
 
 REACHABLE_FLAG = "-Dtheo.reachableOnly=true"
 HISTORY_FILENAMES = {"history.html", "history.json"}
-THEO_DIR = THEO_CACHE
+THEO_DIR = THEO_HISTORY
 
 TEST_MODULE_PAT = re.compile(r'\btest(?:s|ing)?\b', re.IGNORECASE)
 _ORIGINAL_PATH = os.environ.get("PATH", "")
@@ -382,6 +389,7 @@ def run_theo_goal(project_path, module, package_name, goal,
         f"mvn {THEO_PLUGIN}:{goal} -pl {pl} "
         f"-Dtheo.packageNames={package_name} {REACHABLE_FLAG} "
         f"-Dtheo.cacheDir={THEO_CACHE} "
+        f"-Dtheo.historyDir={THEO_HISTORY} "
         f"-Dmaven.repo.local={M2_REPO} "
         f"{extra_flags}"
     ).strip()
@@ -473,7 +481,7 @@ def find_snapshot(project_path, module, commit_label=None):
         return None
     if not gid or not aid:
         return None
-    snap_dir = THEO_DIR / "history" / f"{gid}__{aid}"
+    snap_dir = THEO_DIR / f"{gid}__{aid}"
     if not snap_dir.exists():
         return None
     if commit_label:
@@ -549,6 +557,86 @@ def save_tracking(data, project_report_base):
 
 
 
+def _load_old_tracking(old_reports_dir):
+    """Load analysis_results.json from a previous run, indexed by sha."""
+    if not old_reports_dir:
+        return {}
+    p = old_reports_dir / "analysis_results.json"
+    if not p.exists():
+        return {}
+    try:
+        with open(p) as f:
+            data = json.load(f)
+        return {c["sha"]: c for c in data.get("commits", [])}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def try_copy_from_old(commit, modules, project_report_base,
+                      old_reports_dir, old_cache_dir, old_snapshots_dir):
+    """Try to copy reports for a commit from a previous analysis run.
+
+    Returns the old result dict if the old commit folder existed and reports
+    were copied, or None otherwise. Only copies data for the given modules.
+    """
+    if not old_reports_dir:
+        return None
+
+    short = commit[:8]
+    old_commit_dir = old_reports_dir / short
+    if not old_commit_dir.exists():
+        return None
+
+    copied_any = False
+    for module in modules:
+        # -- commit reports --
+        old_mod_dir = old_commit_dir / module
+        if old_mod_dir.exists():
+            new_commit_dir, new_hist_dir = _report_dirs(
+                project_report_base, module, commit)
+            new_commit_dir.mkdir(parents=True, exist_ok=True)
+            for f in old_mod_dir.iterdir():
+                if f.is_file():
+                    shutil.copy2(f, new_commit_dir / f.name)
+            copied_any = True
+
+        # -- history files (module-level, outside commit folders) --
+        old_hist_dir = old_reports_dir / module
+        if old_hist_dir.exists():
+            _, new_hist_dir = _report_dirs(
+                project_report_base, module, commit)
+            new_hist_dir.mkdir(parents=True, exist_ok=True)
+            for name in HISTORY_FILENAMES:
+                f = old_hist_dir / name
+                if f.exists():
+                    shutil.copy2(f, new_hist_dir / name)
+
+    # -- cache (last-run.json etc.) --
+    if old_cache_dir and old_cache_dir.exists():
+        for item in old_cache_dir.iterdir():
+            if item.is_dir():
+                dest = THEO_CACHE / item.name
+                if not dest.exists():
+                    shutil.copytree(item, dest)
+
+    # -- snapshots --
+    if old_snapshots_dir and old_snapshots_dir.exists():
+        for item in old_snapshots_dir.iterdir():
+            if item.is_dir():
+                dest = THEO_HISTORY / item.name
+                if not dest.exists():
+                    shutil.copytree(item, dest)
+                else:
+                    for f in item.iterdir():
+                        if f.is_file() and not (dest / f.name).exists():
+                            shutil.copy2(f, dest / f.name)
+
+    if not copied_any:
+        return None
+    log.info(f"  {short}: copied from previous run")
+    return True
+
+
 # Per-project processing
 def process_project(entry):
     project_path = Path(entry["projectPath"])
@@ -559,6 +647,9 @@ def process_project(entry):
     java_versions = entry.get("javaVersions", [])
     selected_modules = entry.get("modules", [])
     watch_poms = entry.get("watchPoms", [])
+    old_reports_dir = Path(entry["oldReportsDir"]) if entry.get("oldReportsDir") else None
+    old_cache_dir = Path(entry["oldCacheDir"]) if entry.get("oldCacheDir") else None
+    old_snapshots_dir = Path(entry["oldSnapshotsDir"]) if entry.get("oldSnapshotsDir") else None
 
     project_name = project_path.name
     project_report_base = REPORTS_BASE / project_name
@@ -566,6 +657,7 @@ def process_project(entry):
 
     tracking = load_tracking(project_report_base)
     done_shas = {c["sha"] for c in tracking["commits"]}
+    old_tracking = _load_old_tracking(old_reports_dir)
     no_dep_shas = set(tracking["noDepChangeCommits"])
 
     # ---- discover commits ----
@@ -625,6 +717,27 @@ def process_project(entry):
             "changedModules": dep_modules,
         }
 
+        # ---- try reusing reports from a previous run ----
+        modules = selected_modules if selected_modules else get_all_modules(project_path)
+        if try_copy_from_old(commit, modules, project_report_base,
+                             old_reports_dir, old_cache_dir, old_snapshots_dir):
+            old_result = old_tracking.get(commit, {})
+            result["analyzedModules"] = modules
+            result["analysisResult"] = "copied"
+            for key in ("durationSeconds", "reachability"):
+                if key in old_result:
+                    result[key] = old_result[key]
+            # filter reachability to selected modules only
+            if "reachability" in result and selected_modules:
+                result["reachability"] = {
+                    m: v for m, v in result["reachability"].items()
+                    if m in selected_modules
+                }
+            tracking["commits"].append(result)
+            save_tracking(tracking, project_report_base)
+            done_shas.add(commit)
+            continue
+
         try:
             # ---- checkout ----
             git_checkout(project_path, commit)
@@ -658,8 +771,6 @@ def process_project(entry):
                     _safe_run(post_command, project_path)
                 continue
 
-            # ---- select modules to analyze ----
-            modules = selected_modules if selected_modules else get_all_modules(project_path)
             result["analyzedModules"] = modules
 
             # ---- run Theo on each module ----
@@ -722,13 +833,15 @@ def process_project(entry):
     # ---- summary ----
     success = sum(1 for c in tracking["commits"]
                   if c.get("analysisResult") == "success")
+    copied = sum(1 for c in tracking["commits"]
+                 if c.get("analysisResult") == "copied")
     failed = sum(1 for c in tracking["commits"]
                  if c.get("analysisResult") == "failed")
     build_fail = sum(1 for c in tracking["commits"]
                      if c.get("analysisResult") == "build_failed")
     no_dep = len(tracking["noDepChangeCommits"])
 
-    log.info(f"  Summary: {success} analyzed, {failed} failed, "
+    log.info(f"  Summary: {success} analyzed, {copied} copied, {failed} failed, "
              f"{build_fail} build failures, {no_dep} no-dep skips")
 
 
