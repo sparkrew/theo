@@ -651,9 +651,13 @@ def process_project(entry):
     old_cache_dir = Path(entry["oldCacheDir"]) if entry.get("oldCacheDir") else None
     old_snapshots_dir = Path(entry["oldSnapshotsDir"]) if entry.get("oldSnapshotsDir") else None
 
+    branch = entry.get("branch", "main")
+
     project_name = project_path.name
     project_report_base = REPORTS_BASE / project_name
     project_report_base.mkdir(parents=True, exist_ok=True)
+
+    run_cmd(f"git checkout {branch}", cwd=project_path, label=f"git checkout {branch}")
 
     tracking = load_tracking(project_report_base)
     done_shas = {c["sha"] for c in tracking["commits"]}
