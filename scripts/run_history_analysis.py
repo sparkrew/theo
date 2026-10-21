@@ -835,18 +835,10 @@ def process_project(entry):
                     log.warning(f"  snapshot failed on {module}: "
                                 f"{str(e)[:150]}")
 
-                try:
-                    run_theo_goal(project_path, module, package_name,
-                                  "history", timeout=HISTORY_TIMEOUT)
-                except RuntimeError as e:
-                    log.warning(f"  history failed on {module}: "
-                                f"{str(e)[:150]}")
-
                 # ---- copy reports ----
-                commit_dir, hist_dir = _report_dirs(
+                commit_dir, _ = _report_dirs(
                     project_report_base, module, commit)
                 copy_commit_reports(project_path, module, commit_dir)
-                copy_history_reports(project_path, module, hist_dir)
 
                 # ---- collect reachability stats ----
                 mod_summary = collect_reachability_summary(
@@ -885,6 +877,35 @@ def process_project(entry):
 
     log.info(f"  Summary: {success} analyzed, {copied} copied, {failed} failed, "
              f"{build_fail} build failures, {no_dep} no-dep skips")
+
+    # ---- final history pass ----
+    modules = selected_modules if selected_modules else get_all_modules(project_path)
+    if success > 0 or copied > 0:
+        log.info(f"  Running history goal for {len(modules)} module(s)")
+        git_checkout(project_path, branch)
+        select_java_version(java_versions, branch, project_path)
+        if pre_command:
+            try:
+                run_cmd(pre_command, cwd=project_path, label="preCommand (history)")
+            except RuntimeError:
+                pass
+        try:
+            build_project(project_path, modules)
+        except RuntimeError as e:
+            log.warning(f"  Build for history pass failed: {str(e)[:200]}")
+            return
+        for module in modules:
+            try:
+                run_theo_goal(project_path, module, package_name,
+                              "history", timeout=HISTORY_TIMEOUT)
+                _, hist_dir = _report_dirs(
+                    project_report_base, module, "history")
+                copy_history_reports(project_path, module, hist_dir)
+            except RuntimeError as e:
+                log.warning(f"  history failed on {module}: {str(e)[:150]}")
+        if post_command:
+            _safe_run(post_command, project_path)
+        log.info("  History pass complete")
 
 
 def _safe_run(cmd, cwd):
