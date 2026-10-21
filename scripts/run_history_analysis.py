@@ -104,6 +104,7 @@ THEO_PLUGIN = "io.github.sparkrew:theo-static-maven-plugin"
 MVN_BUILD = (
     f"mvn clean install -DskipTests -Dcheckstyle.skip=true "
     f"-Dspotless.check.skip=true -Denforcer.skip=true "
+    f"-Dmaven.build.cache.enabled=false "
     f"-Dmaven.repo.local={M2_REPO}"
 )
 
@@ -198,27 +199,15 @@ def git_info(project_path, commit):
         return {"sha": commit, "message": "", "date": ""}
 
 
-def build_project(project_path):
-    run_cmd(MVN_BUILD, cwd=project_path, timeout=BUILD_TIMEOUT,
-            label="mvn build (root)")
+def build_project(project_path, modules=None):
+    cmd = MVN_BUILD
+    if modules:
+        pl = ",".join(m for m in modules if m != ".")
+        if pl:
+            cmd += f" -pl {pl} -am"
+    run_cmd(cmd, cwd=project_path, timeout=BUILD_TIMEOUT,
+            label="mvn build")
 
-
-def _wait_for_module_jars(project_path, modules, retries=6, delay=5):
-    """Wait for module JARs to appear after build (NFS sync lag)."""
-    for module in modules:
-        mod_dir = project_path / (module if module != "." else "")
-        target = mod_dir / "target"
-        if not target.exists():
-            continue
-        for attempt in range(retries):
-            jars = list(target.glob("*.jar"))
-            if jars:
-                break
-            if attempt < retries - 1:
-                log.debug(f"  Waiting for JAR in {module}/target/ (attempt {attempt + 1})")
-                time.sleep(delay)
-        else:
-            log.warning(f"  No JAR found in {module}/target/ after {retries * delay}s")
 
 
 def get_submodules(project_path):
@@ -803,7 +792,7 @@ def process_project(entry):
 
             # ---- build (root) ----
             try:
-                build_project(project_path)
+                build_project(project_path, modules)
             except RuntimeError as e:
                 log.warning(f"  Build failed for {commit[:8]}, skipping")
                 log.debug(f"  {str(e)[:300]}")
@@ -825,8 +814,6 @@ def process_project(entry):
                 continue
 
             result["analyzedModules"] = modules
-
-            _wait_for_module_jars(project_path, modules)
 
             # ---- run Theo on each module ----
             t = time.time()
