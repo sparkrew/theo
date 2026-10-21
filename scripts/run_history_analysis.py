@@ -203,6 +203,24 @@ def build_project(project_path):
             label="mvn build (root)")
 
 
+def _wait_for_module_jars(project_path, modules, retries=6, delay=5):
+    """Wait for module JARs to appear after build (NFS sync lag)."""
+    for module in modules:
+        mod_dir = project_path / (module if module != "." else "")
+        target = mod_dir / "target"
+        if not target.exists():
+            continue
+        for attempt in range(retries):
+            jars = list(target.glob("*.jar"))
+            if jars:
+                break
+            if attempt < retries - 1:
+                log.debug(f"  Waiting for JAR in {module}/target/ (attempt {attempt + 1})")
+                time.sleep(delay)
+        else:
+            log.warning(f"  No JAR found in {module}/target/ after {retries * delay}s")
+
+
 def get_submodules(project_path):
     pom = project_path / "pom.xml"
     if not pom.exists():
@@ -807,6 +825,8 @@ def process_project(entry):
                 continue
 
             result["analyzedModules"] = modules
+
+            _wait_for_module_jars(project_path, modules)
 
             # ---- run Theo on each module ----
             t = time.time()
