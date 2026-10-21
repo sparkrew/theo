@@ -48,7 +48,7 @@ echo "=== Checking progress ==="
 python3 -c "
 import json
 from pathlib import Path
-base = Path('$HOME/projects/def-baudry/yogya/theo-all/client-results/history')
+base = Path('/scratch/yogya/client-results/history')
 if not base.exists():
     print('No results directory yet')
 else:

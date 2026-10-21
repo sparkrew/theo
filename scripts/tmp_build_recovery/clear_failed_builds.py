@@ -10,7 +10,7 @@ Does NOT touch cache or snapshots (Theo goals only run after successful builds).
 Usage:
     python3 clear_failed_builds.py [reports_base]
 
-Default: ~/projects/def-baudry/yogya/theo-all/client-results/history
+Default: /scratch/yogya/client-results/history
 """
 
 import json
@@ -20,7 +20,7 @@ from pathlib import Path
 
 REPORTS_BASE = Path(
     sys.argv[1] if len(sys.argv) > 1
-    else Path.home() / "projects/def-baudry/yogya/theo-all/client-results/history"
+    else Path("/scratch/yogya/client-results/history")
 )
 
 def main():

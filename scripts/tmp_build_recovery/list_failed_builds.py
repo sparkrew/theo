@@ -11,7 +11,7 @@ from pathlib import Path
 
 REPORTS_BASE = Path(
     sys.argv[1] if len(sys.argv) > 1
-    else Path.home() / "projects/def-baudry/yogya/theo-all/client-results/history"
+    else Path("/scratch/yogya/client-results/history")
 )
 
 def main():

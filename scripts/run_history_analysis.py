@@ -88,15 +88,14 @@ def setup_logging():
     log.addHandler(ch)
 
 
-REPORTS_BASE = Path("/home/yogya/projects/def-baudry/yogya/theo-all/client-results/history")
+REPORTS_BASE = Path("/scratch/yogya/client-results/history")
 DEFAULT_INPUT = Path(
     "/home/yogya/projects/def-baudry/yogya/theo-all/theo/client_project_histories.json"
 )
 
-SCRATCH = os.environ.get("SCRATCH", "/scratch")
-M2_REPO = f"{SCRATCH}/m2-repository"
-THEO_CACHE = Path("/home/yogya/projects/def-baudry/yogya/theo-all/client-results/cache")
-THEO_HISTORY = Path("/home/yogya/projects/def-baudry/yogya/theo-all/client-results/history-snapshots")
+M2_REPO = "/scratch/yogya/m2-repository"
+THEO_CACHE = Path("/scratch/yogya/client-results/theo-cache")
+THEO_HISTORY = Path("/scratch/yogya/client-results/theo-history-snapshots")
 
 os.environ.pop("JAVA_TOOL_OPTIONS", None)
 os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx32g"
@@ -393,8 +392,40 @@ def run_theo_goal(project_path, module, package_name, goal,
         f"-Dmaven.repo.local={M2_REPO} "
         f"{extra_flags}"
     ).strip()
-    run_cmd(cmd, cwd=project_path, timeout=timeout,
-            label=f"theo {goal} ({module})")
+    label = f"theo {goal} ({module})"
+    log.info(f"  [{label}] {cmd[:120]}")
+    try:
+        result = subprocess.run(
+            cmd, shell=True, cwd=str(project_path),
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"{label} timed out after {timeout}s")
+    if result.returncode != 0:
+        _dump_theo_failure(project_path, module, goal, cmd, result)
+        out = (result.stdout or "")[-1500:]
+        err = (result.stderr or "")[-1500:]
+        raise RuntimeError(
+            f"{label} failed (exit {result.returncode}):\n{out}\n{err}"
+        )
+    return result
+
+
+def _dump_theo_failure(project_path, module, goal, cmd, result):
+    dump_dir = REPORTS_BASE / project_path.name / "errors"
+    dump_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    mod_slug = module.replace("/", "_") if module != "." else "root"
+    dump_file = dump_dir / f"{goal}_{mod_slug}_{ts}.log"
+    dump_file.write_text(
+        f"Command: {cmd}\n"
+        f"Exit code: {result.returncode}\n"
+        f"CWD: {project_path}\n"
+        f"Time: {datetime.now().isoformat()}\n"
+        f"\n=== STDOUT ===\n{result.stdout or ''}"
+        f"\n=== STDERR ===\n{result.stderr or ''}\n"
+    )
+    log.info(f"  Full error log: {dump_file}")
 
 
 

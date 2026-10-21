@@ -20,7 +20,7 @@ if len(sys.argv) < 2:
 CUTOFF = sys.argv[1]
 REPORTS_BASE = Path(
     sys.argv[2] if len(sys.argv) > 2
-    else Path.home() / "projects/def-baudry/yogya/theo-all/client-results/history"
+    else Path("/scratch/yogya/client-results/history")
 )
 
 

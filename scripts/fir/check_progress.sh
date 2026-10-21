@@ -2,7 +2,7 @@
 # Quick progress check — run on login node anytime
 # Usage: bash scripts/check_progress.sh
 
-BASE="$HOME/projects/def-baudry/yogya/theo-all/client-results/history"
+BASE="/scratch/yogya/client-results/history"
 
 echo "=== Theo History Analysis Progress ==="
 echo ""
