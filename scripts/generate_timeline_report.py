@@ -415,7 +415,7 @@ def _wrap_html(body, scripts, commit_count):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sensitive API Reachability Timeline</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.7/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
 :root {{
     --bg: #fafafa; --fg: #1a1a1a; --card: #fff; --border: #e0e0e0;
