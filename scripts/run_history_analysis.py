@@ -237,7 +237,7 @@ def get_pom_commits(project_path, last_commit=None):
         # Inclusive range: last_commit^ .. HEAD
         try:
             cmd = (
-                f"git log --reverse --format=%H "
+                f"git log --first-parent --reverse --format=%H "
                 f"{last_commit}^..HEAD "
                 f"-- ':(glob)**/pom.xml' 'pom.xml'"
             )
@@ -252,7 +252,7 @@ def get_pom_commits(project_path, last_commit=None):
         # Fallback: exclusive (misses last_commit itself when it is the root)
         try:
             cmd = (
-                f"git log --reverse --format=%H "
+                f"git log --first-parent --reverse --format=%H "
                 f"{last_commit}..HEAD "
                 f"-- ':(glob)**/pom.xml' 'pom.xml'"
             )
@@ -265,7 +265,7 @@ def get_pom_commits(project_path, last_commit=None):
     else:
         since = (datetime.now() - FIVE_YEARS).strftime("%Y-%m-%d")
         cmd = (
-            f"git log --reverse --format=%H "
+            f"git log --first-parent --reverse --format=%H "
             f"--since='{since}' "
             f"-- ':(glob)**/pom.xml' 'pom.xml'"
         )
