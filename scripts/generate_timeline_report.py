@@ -20,6 +20,7 @@ from datetime import datetime
 
 
 REPORTS_BASE = Path("/scratch/yogya/client-results/history")
+SNAPSHOTS_BASE = Path("/scratch/yogya/client-results/theo-history-snapshots")
 DEFAULT_OUTPUT = Path("/home/yogya/projects/def-baudry/yogya/theo-all/client_final_changed_reports")
 
 CATEGORIES = ["FILESYSTEM", "NETWORK", "PROCESS", "OTHER"]
@@ -88,6 +89,75 @@ def build_timeline(data):
         print(f"  Skipped (no reachability):   {', '.join(skipped_no_reachability)}")
 
     return commits
+
+
+def _build_snapshot_index():
+    """Index all snapshot files by (groupId__artifactId, commitLabel)."""
+    index = {}
+    if not SNAPSHOTS_BASE.exists():
+        return index
+    for artifact_dir in SNAPSHOTS_BASE.iterdir():
+        if not artifact_dir.is_dir():
+            continue
+        for f in artifact_dir.glob("*.json"):
+            parts = f.stem.split("__", 1)
+            if len(parts) == 2:
+                label = parts[1]
+                index[(artifact_dir.name, label)] = f
+    return index
+
+
+def _summary_from_snapshot(snap_path):
+    """Build the same reachability summary that collect_reachability_summary produces."""
+    try:
+        with open(snap_path) as f:
+            snap = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    apis = snap.get("reachableApis", [])
+    if not apis:
+        return None
+
+    by_cat = {}
+    by_dep = {}
+    for entry in apis:
+        cat = entry.get("category", "OTHER")
+        by_cat[cat] = by_cat.get(cat, 0) + 1
+        dep_key = (f"{entry.get('depGroupId', '')}:"
+                   f"{entry.get('depArtifactId', '')}:"
+                   f"{entry.get('depVersion', '')}")
+        by_dep[dep_key] = by_dep.get(dep_key, 0) + 1
+
+    return {
+        "reachableApis": len(apis),
+        "reachableApisByCategory": by_cat,
+        "depsDetail": dict(sorted(by_dep.items(), key=lambda x: -x[1])),
+    }
+
+
+def enrich_from_snapshots(timeline):
+    """Fill in missing reachableApis data from snapshot files."""
+    snap_index = _build_snapshot_index()
+    if not snap_index:
+        return
+
+    enriched = 0
+    for commit in timeline:
+        for mod, reach in commit["reachability"].items():
+            if "reachableApis" in reach:
+                continue
+            sha8 = commit["sha8"]
+            for key, snap_path in snap_index.items():
+                if key[1] == sha8:
+                    summary = _summary_from_snapshot(snap_path)
+                    if summary:
+                        reach.update(summary)
+                        enriched += 1
+                    break
+
+    if enriched > 0:
+        print(f"  Enriched {enriched} commit(s) from snapshot files")
 
 
 def all_modules(timeline):
@@ -218,6 +288,9 @@ def generate_html(timeline, modules):
                     "data": values,
                     "borderColor": col["line"],
                     "backgroundColor": col["bg"],
+                    "borderWidth": 1.5,
+                    "pointRadius": 0,
+                    "pointHitRadius": 6,
                     "fill": True,
                     "tension": 0.3,
                 })
@@ -273,15 +346,13 @@ def generate_html(timeline, modules):
         charts_html.append(f"""
         <div class="module-section">
             <h2>{mod_label}</h2>
-            <div class="chart-row">
-                <div class="chart-container">
-                    <h3>Reachable Sensitive APIs by Category</h3>
-                    <canvas id="apis_{mod_id}"></canvas>
-                </div>
-                <div class="chart-container">
-                    <h3>Reachable Deps / Total APIs</h3>
-                    <canvas id="summary_{mod_id}"></canvas>
-                </div>
+            <div class="chart-full">
+                <h3>Reachable Sensitive APIs by Category</h3>
+                <canvas id="apis_{mod_id}"></canvas>
+            </div>
+            <div class="chart-full">
+                <h3>Reachable Deps / Total APIs</h3>
+                <canvas id="summary_{mod_id}"></canvas>
             </div>
             <div class="table-container">
                 <h3>Top Dependencies by Reachable Sensitive APIs</h3>
@@ -300,7 +371,7 @@ def generate_html(timeline, modules):
             type: 'line',
             data: {{ labels: {labels_js}, datasets: {json.dumps(api_datasets)} }},
             options: {{
-                responsive: true,
+                responsive: true, maintainAspectRatio: false,
                 plugins: {{ legend: {{ position: 'bottom' }} }},
                 scales: {{
                     x: {{ ticks: {{ maxRotation: 45, autoSkip: true, maxTicksLimit: 20 }} }},
@@ -319,6 +390,7 @@ def generate_html(timeline, modules):
                         data: {json.dumps(total_apis)},
                         borderColor: '#2d6a4f',
                         backgroundColor: 'rgba(45,106,79,0.1)',
+                        borderWidth: 1.5, pointRadius: 0, pointHitRadius: 6,
                         fill: true, tension: 0.3, yAxisID: 'y'
                     }},
                     {{
@@ -326,12 +398,13 @@ def generate_html(timeline, modules):
                         data: {json.dumps(total_deps)},
                         borderColor: '#6c4ab6',
                         backgroundColor: 'rgba(108,74,182,0.1)',
+                        borderWidth: 1.5, pointRadius: 0, pointHitRadius: 6,
                         fill: true, tension: 0.3, yAxisID: 'y1'
                     }}
                 ]
             }},
             options: {{
-                responsive: true,
+                responsive: true, maintainAspectRatio: false,
                 plugins: {{ legend: {{ position: 'bottom' }} }},
                 scales: {{
                     x: {{ ticks: {{ maxRotation: 45, autoSkip: true, maxTicksLimit: 20 }} }},
@@ -445,9 +518,8 @@ h1 {{ margin-bottom: 4px; font-size: 1.5rem; }}
 }}
 .module-section h2 {{ font-size: 1.2rem; margin-bottom: 16px; }}
 .module-section h3 {{ font-size: 0.95rem; color: var(--muted); margin-bottom: 8px; margin-top: 16px; }}
-.chart-row {{ display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 24px; }}
-.chart-container {{ flex: 1; min-width: 400px; }}
-canvas {{ max-height: 320px; }}
+.chart-full {{ margin-bottom: 32px; }}
+canvas {{ height: 400px !important; }}
 .table-container {{ overflow-x: auto; margin-top: 16px; }}
 .dep-table-wrap table, .delta-table-wrap table {{
     border-collapse: collapse; width: 100%; font-size: 0.82rem;
@@ -500,6 +572,8 @@ def main():
     if not timeline:
         print("No successful commits with reachability data found.", file=sys.stderr)
         sys.exit(1)
+
+    enrich_from_snapshots(timeline)
 
     modules = all_modules(timeline)
     print(f"{len(timeline)} commits, {len(modules)} module(s): {modules}")
