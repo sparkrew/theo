@@ -136,6 +136,13 @@ def _summary_from_snapshot(snap_path):
     }
 
 
+def _module_artifact_id(mod):
+    """Derive the likely artifactId from a module path: 'lang/java/avro' -> 'avro'."""
+    if mod == ".":
+        return None
+    return mod.rstrip("/").rsplit("/", 1)[-1]
+
+
 def enrich_from_snapshots(timeline):
     """Fill in missing reachableApis data from snapshot files."""
     snap_index = _build_snapshot_index()
@@ -148,13 +155,19 @@ def enrich_from_snapshots(timeline):
             if "reachableApis" in reach:
                 continue
             sha8 = commit["sha8"]
+            aid = _module_artifact_id(mod)
             for key, snap_path in snap_index.items():
-                if key[1] == sha8:
-                    summary = _summary_from_snapshot(snap_path)
-                    if summary:
-                        reach.update(summary)
-                        enriched += 1
-                    break
+                if key[1] != sha8:
+                    continue
+                # Match artifact directory: org.apache.avro__avro -> avro
+                dir_aid = key[0].rsplit("__", 1)[-1] if "__" in key[0] else key[0]
+                if aid and dir_aid != aid:
+                    continue
+                summary = _summary_from_snapshot(snap_path)
+                if summary:
+                    reach.update(summary)
+                    enriched += 1
+                break
 
     if enriched > 0:
         print(f"  Enriched {enriched} commit(s) from snapshot files")
