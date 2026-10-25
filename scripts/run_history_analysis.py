@@ -362,6 +362,13 @@ def pom_path_to_module(pom_path):
 
 
 # Module resolution
+def _module_pom_exists(project_path, module):
+    """True when the module's pom.xml exists on disk (i.e. at the current checkout)."""
+    if module == ".":
+        return (project_path / "pom.xml").exists()
+    return (project_path / module / "pom.xml").exists()
+
+
 def get_all_modules(project_path):
     """Return all leaf modules in the project. Recurses into aggregator
     modules that themselves declare submodules."""
@@ -759,36 +766,52 @@ def process_project(entry):
             "changedModules": dep_modules,
         }
 
-        # ---- try reusing reports from a previous run ----
-        modules = selected_modules if selected_modules else get_all_modules(project_path)
-        if try_copy_from_old(commit, modules, project_report_base,
-                             old_reports_dir, old_cache_dir, old_snapshots_dir):
-            old_result = old_tracking.get(commit, {})
-            result["analyzedModules"] = modules
-            result["analysisResult"] = "copied"
-            for key in ("durationSeconds", "reachability"):
-                if key in old_result:
-                    result[key] = old_result[key]
-            # filter reachability to selected modules only
-            if "reachability" in result and selected_modules:
-                result["reachability"] = {
-                    m: v for m, v in result["reachability"].items()
-                    if m in selected_modules
-                }
-            tracking["commits"].append(result)
-            save_tracking(tracking, project_report_base)
-            done_shas.add(commit)
-            continue
-
+        checked_out = False
         try:
             # ---- checkout ----
             git_checkout(project_path, commit)
+            checked_out = True
 
             # ---- select Java version ----
             select_java_version(java_versions, commit, project_path)
 
             if pre_command:
                 run_cmd(pre_command, cwd=project_path, label="preCommand")
+
+            # ---- resolve modules at this commit ----
+            if selected_modules:
+                modules = [m for m in selected_modules
+                           if _module_pom_exists(project_path, m)]
+                if not modules:
+                    log.warning(f"  {commit[:8]}: none of the selected "
+                                f"modules exist at this commit, skipping")
+                    result["analysisResult"] = "no_modules"
+                    tracking["commits"].append(result)
+                    save_tracking(tracking, project_report_base)
+                    done_shas.add(commit)
+                    continue
+            else:
+                modules = get_all_modules(project_path)
+
+            # ---- try reusing reports from a previous run ----
+            if try_copy_from_old(commit, modules, project_report_base,
+                                 old_reports_dir, old_cache_dir,
+                                 old_snapshots_dir):
+                old_result = old_tracking.get(commit, {})
+                result["analyzedModules"] = modules
+                result["analysisResult"] = "copied"
+                for key in ("durationSeconds", "reachability"):
+                    if key in old_result:
+                        result[key] = old_result[key]
+                if "reachability" in result and selected_modules:
+                    result["reachability"] = {
+                        m: v for m, v in result["reachability"].items()
+                        if m in selected_modules
+                    }
+                tracking["commits"].append(result)
+                save_tracking(tracking, project_report_base)
+                done_shas.add(commit)
+                continue
 
             # ---- build (root) ----
             try:
@@ -809,8 +832,6 @@ def process_project(entry):
                 result["errorFile"] = str(error_file)
                 tracking["commits"].append(result)
                 save_tracking(tracking, project_report_base)
-                if post_command:
-                    _safe_run(post_command, project_path)
                 continue
 
             result["analyzedModules"] = modules
@@ -853,12 +874,13 @@ def process_project(entry):
             log.info(f"  OK {commit[:8]} ({result['durationSeconds']}s)")
 
         except Exception as e:
-            result["analysisResult"] = "failed"
-            result["error"] = str(e)[:500]
-            log.error(f"  FAILED {commit[:8]}: {str(e)[:200]}")
-
-        if post_command:
-            _safe_run(post_command, project_path)
+            result["analysisResult"] = result.get("analysisResult", "failed")
+            if "error" not in result:
+                result["error"] = str(e)[:500]
+                log.error(f"  FAILED {commit[:8]}: {str(e)[:200]}")
+        finally:
+            if checked_out and post_command:
+                _safe_run(post_command, project_path)
 
         tracking["commits"].append(result)
         save_tracking(tracking, project_report_base)
