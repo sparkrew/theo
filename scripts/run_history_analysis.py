@@ -779,19 +779,20 @@ def process_project(entry):
                 run_cmd(pre_command, cwd=project_path, label="preCommand")
 
             # ---- resolve modules at this commit ----
+            available = set(get_all_modules(project_path))
             if selected_modules:
-                modules = [m for m in selected_modules
-                           if _module_pom_exists(project_path, m)]
+                modules = [m for m in selected_modules if m in available]
                 if not modules:
                     log.warning(f"  {commit[:8]}: none of the selected "
-                                f"modules exist at this commit, skipping")
+                                f"modules exist in the reactor, skipping "
+                                f"(available: {sorted(available)[:5]})")
                     result["analysisResult"] = "no_modules"
                     tracking["commits"].append(result)
                     save_tracking(tracking, project_report_base)
                     done_shas.add(commit)
                     continue
             else:
-                modules = get_all_modules(project_path)
+                modules = sorted(available)
 
             # ---- try reusing reports from a previous run ----
             if try_copy_from_old(commit, modules, project_report_base,
