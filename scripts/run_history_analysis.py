@@ -279,9 +279,9 @@ def get_pom_commits(project_path, last_commit=None):
 
 
 def get_changed_poms(project_path, commit):
-    """List pom.xml paths changed in a single *commit*."""
+    """List pom.xml paths changed in a single *commit* vs its first parent."""
     cmd = (
-        f"git diff-tree --no-commit-id --name-only -r {commit} "
+        f"git diff --name-only {commit}^..{commit} "
         f"-- ':(glob)**/pom.xml' 'pom.xml'"
     )
     try:
