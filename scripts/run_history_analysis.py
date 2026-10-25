@@ -691,6 +691,8 @@ def process_project(entry):
     post_command = entry.get("postCommand", "")
     java_versions = entry.get("javaVersions", [])
     selected_modules = entry.get("modules", [])
+    if not selected_modules and entry.get("module"):
+        selected_modules = [entry["module"]]
     watch_poms = entry.get("watchPoms", [])
     old_reports_dir = Path(entry["oldReportsDir"]) if entry.get("oldReportsDir") else None
     old_cache_dir = Path(entry["oldCacheDir"]) if entry.get("oldCacheDir") else None
