@@ -179,6 +179,30 @@ def select_java_version(java_versions, commit, project_path):
     return chosen
 
 
+def _detect_default_branch(project_path):
+    """Auto-detect the default branch from the remote, falling back to common names."""
+    try:
+        r = subprocess.run(
+            "git symbolic-ref refs/remotes/origin/HEAD",
+            shell=True, cwd=str(project_path),
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            ref = r.stdout.strip()
+            return ref.removeprefix("refs/remotes/origin/")
+    except Exception:
+        pass
+    for name in ("main", "master", "develop"):
+        r = subprocess.run(
+            f"git rev-parse --verify origin/{name}",
+            shell=True, cwd=str(project_path),
+            capture_output=True, timeout=10,
+        )
+        if r.returncode == 0:
+            return name
+    return "main"
+
+
 def git_checkout(project_path, commit):
     run_cmd(f"git checkout {commit}", cwd=project_path, label="git checkout")
 
@@ -698,7 +722,7 @@ def process_project(entry):
     old_cache_dir = Path(entry["oldCacheDir"]) if entry.get("oldCacheDir") else None
     old_snapshots_dir = Path(entry["oldSnapshotsDir"]) if entry.get("oldSnapshotsDir") else None
 
-    branch = entry.get("branch", "main")
+    branch = entry.get("branch") or _detect_default_branch(project_path)
 
     project_name = project_path.name
     project_report_base = REPORTS_BASE / project_name
