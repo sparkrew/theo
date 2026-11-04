@@ -422,15 +422,16 @@ def get_all_modules(project_path):
 
 # Theo execution
 def run_theo_goal(project_path, module, package_name, goal,
-                  extra_flags="", timeout=THEO_TIMEOUT):
+                  extra_flags="", timeout=THEO_TIMEOUT, profiles=""):
     pl = module if module != "." else "."
+    profile_flag = f" -P {profiles}" if profiles else ""
     cmd = (
         f"mvn {THEO_PLUGIN}:{goal} -pl {pl} "
         f"-Dtheo.packageNames={package_name} {REACHABLE_FLAG} "
         f"-Dtheo.cacheDir={THEO_CACHE} "
         f"-Dtheo.historyDir={THEO_HISTORY} "
         f"-Dmaven.repo.local={M2_REPO} "
-        f"{extra_flags}"
+        f"{extra_flags}{profile_flag}"
     ).strip()
     label = f"theo {goal} ({module})"
     log.info(f"  [{label}] {cmd[:120]}")
@@ -872,7 +873,7 @@ def process_project(entry):
             for module in modules:
                 try:
                     run_theo_goal(project_path, module, package_name,
-                                  "cve-check")
+                                  "cve-check", profiles=profiles)
                 except RuntimeError as e:
                     log.warning(f"  cve-check failed on {module}: "
                                 f"{str(e)[:150]}")
@@ -881,6 +882,7 @@ def process_project(entry):
                     run_theo_goal(
                         project_path, module, package_name, "snapshot",
                         extra_flags=f"-Dtheo.snapshotLabel={commit[:8]}",
+                        profiles=profiles,
                     )
                 except RuntimeError as e:
                     log.warning(f"  snapshot failed on {module}: "
@@ -949,7 +951,8 @@ def process_project(entry):
         for module in modules:
             try:
                 run_theo_goal(project_path, module, package_name,
-                              "history", timeout=HISTORY_TIMEOUT)
+                              "history", timeout=HISTORY_TIMEOUT,
+                              profiles=profiles)
                 _, hist_dir = _report_dirs(
                     project_report_base, module, "history")
                 copy_history_reports(project_path, module, hist_dir)
