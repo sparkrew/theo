@@ -98,7 +98,7 @@ THEO_CACHE = Path("/scratch/yogya/client-results/theo-cache")
 THEO_HISTORY = Path("/scratch/yogya/client-results/theo-history-snapshots")
 
 os.environ.pop("JAVA_TOOL_OPTIONS", None)
-os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx32g"
+os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx7g"
 
 THEO_PLUGIN = "io.github.sparkrew:theo-static-maven-plugin"
 MVN_BUILD = (
@@ -123,7 +123,7 @@ _ORIGINAL_PATH = os.environ.get("PATH", "")
 
 
 # Shared utilities
-def run_cmd(cmd, cwd, timeout=120, label="command", quiet=False):
+def run_cmd(cmd, cwd, timeout=3600, label="command", quiet=False):
     if not quiet:
         log.info(f"  [{label}] {cmd[:120]}")
     try:
@@ -204,7 +204,7 @@ def _detect_default_branch(project_path):
 
 
 def git_checkout(project_path, commit):
-    run_cmd(f"git checkout {commit}", cwd=project_path, label="git checkout")
+    run_cmd(f"git checkout -f {commit}", cwd=project_path, label="git checkout")
 
 
 def git_info(project_path, commit):
@@ -267,7 +267,7 @@ def get_pom_commits(project_path, last_commit=None):
                 f"{last_commit}^..HEAD "
                 f"-- ':(glob)**/pom.xml' 'pom.xml'"
             )
-            r = run_cmd(cmd, cwd=project_path, timeout=120,
+            r = run_cmd(cmd, cwd=project_path, timeout=3600,
                         label="git log pom commits")
             commits = [l.strip() for l in r.stdout.strip().splitlines()
                        if l.strip()]
@@ -282,7 +282,7 @@ def get_pom_commits(project_path, last_commit=None):
                 f"{last_commit}..HEAD "
                 f"-- ':(glob)**/pom.xml' 'pom.xml'"
             )
-            r = run_cmd(cmd, cwd=project_path, timeout=120,
+            r = run_cmd(cmd, cwd=project_path, timeout=3600,
                         label="git log pom commits (excl)")
             return [l.strip() for l in r.stdout.strip().splitlines()
                     if l.strip()]
@@ -296,7 +296,7 @@ def get_pom_commits(project_path, last_commit=None):
             f"-- ':(glob)**/pom.xml' 'pom.xml'"
         )
         try:
-            r = run_cmd(cmd, cwd=project_path, timeout=120,
+            r = run_cmd(cmd, cwd=project_path, timeout=3600,
                         label="git log pom commits (5yr)")
             return [l.strip() for l in r.stdout.strip().splitlines()
                     if l.strip()]
@@ -311,7 +311,7 @@ def get_changed_poms(project_path, commit):
         f"-- ':(glob)**/pom.xml' 'pom.xml'"
     )
     try:
-        r = run_cmd(cmd, cwd=project_path, timeout=60, label="diff-tree poms",
+        r = run_cmd(cmd, cwd=project_path, timeout=3600, label="diff-tree poms",
                     quiet=True)
         return [f.strip() for f in r.stdout.strip().splitlines()
                 if f.strip().endswith("pom.xml")]
@@ -731,7 +731,7 @@ def process_project(entry):
     project_report_base = REPORTS_BASE / project_name
     project_report_base.mkdir(parents=True, exist_ok=True)
 
-    run_cmd(f"git checkout {branch}", cwd=project_path, label=f"git checkout {branch}")
+    run_cmd(f"git checkout -f {branch}", cwd=project_path, label=f"git checkout {branch}")
 
     tracking = load_tracking(project_report_base)
     done_shas = {c["sha"] for c in tracking["commits"]}
