@@ -223,12 +223,14 @@ def git_info(project_path, commit):
         return {"sha": commit, "message": "", "date": ""}
 
 
-def build_project(project_path, modules=None):
+def build_project(project_path, modules=None, profiles=""):
     cmd = MVN_BUILD
     if modules:
         pl = ",".join(m for m in modules if m != ".")
         if pl:
             cmd += f" -pl {pl} -am"
+    if profiles:
+        cmd += f" -P {profiles}"
     run_cmd(cmd, cwd=project_path, timeout=BUILD_TIMEOUT,
             label="mvn build")
 
@@ -713,6 +715,7 @@ def process_project(entry):
     package_name = entry["packageName"]
     pre_command = entry.get("preCommand", "")
     post_command = entry.get("postCommand", "")
+    profiles = entry.get("profiles", "")
     java_versions = entry.get("javaVersions", [])
     selected_modules = entry.get("modules", [])
     if not selected_modules and entry.get("module"):
@@ -842,7 +845,7 @@ def process_project(entry):
 
             # ---- build (root) ----
             try:
-                build_project(project_path, modules)
+                build_project(project_path, modules, profiles)
             except RuntimeError as e:
                 log.warning(f"  Build failed for {commit[:8]}, skipping")
                 log.debug(f"  {str(e)[:300]}")
@@ -939,7 +942,7 @@ def process_project(entry):
             except RuntimeError:
                 pass
         try:
-            build_project(project_path, modules)
+            build_project(project_path, modules, profiles)
         except RuntimeError as e:
             log.warning(f"  Build for history pass failed: {str(e)[:200]}")
             return
