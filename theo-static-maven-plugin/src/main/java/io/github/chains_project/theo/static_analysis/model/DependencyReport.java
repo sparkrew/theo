@@ -21,6 +21,7 @@ public class DependencyReport {
     private long analyzedAt;
     private String scope;
     private int dependencyDepth;
+    private List<String> dependencyTrail;
 
     /** Required by Jackson for deserialization. */
     public DependencyReport() {
@@ -122,5 +123,24 @@ public class DependencyReport {
 
     public void setDependencyDepth(int dependencyDepth) {
         this.dependencyDepth = dependencyDepth;
+    }
+
+    public List<String> getDependencyTrail() {
+        return dependencyTrail;
+    }
+
+    public void setDependencyTrail(List<String> dependencyTrail) {
+        this.dependencyTrail = dependencyTrail;
+    }
+
+    public boolean isTransitive() {
+        return dependencyDepth > 1;
+    }
+
+    public String getDirectParentGav() {
+        if (dependencyTrail != null && dependencyTrail.size() >= 2) {
+            return dependencyTrail.get(dependencyTrail.size() - 2);
+        }
+        return null;
     }
 }

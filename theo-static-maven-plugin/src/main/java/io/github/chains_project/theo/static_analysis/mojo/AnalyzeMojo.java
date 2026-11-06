@@ -12,8 +12,10 @@ import io.github.chains_project.theo.static_analysis.cache.SnapshotManager;
 import io.github.chains_project.theo.static_analysis.model.ReachableSnapshot;
 import io.github.chains_project.theo.static_analysis.model.AnalysisSummary;
 import io.github.chains_project.theo.static_analysis.model.ChangeSet;
+import io.github.chains_project.theo.static_analysis.model.DependencyReport;
 import io.github.chains_project.theo.static_analysis.report.CliReporter;
 import io.github.chains_project.theo.static_analysis.report.HtmlReportGenerator;
+import io.github.chains_project.theo.static_analysis.report.PomSuggestionGenerator;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -98,16 +100,23 @@ public class AnalyzeMojo extends AbstractMojo {
     @Parameter(property = "theo.compareWith", defaultValue = "0")
     private int compareWith;
 
+    /** When true, fail the build if reachable sensitive APIs have additions or modifications. */
+    @Parameter(property = "theo.failOnChange", defaultValue = "false")
+    private boolean failOnChange;
+
     /** Local Maven repository path, used to resolve the analyzer jar when no explicit path is given. */
     @Parameter(defaultValue = "${settings.localRepository}", readonly = true)
     private String localRepository;
 
     // Stored after runAnalysis so subclasses can access the change set
     protected ChangeSet lastChangeSet;
+    protected AnalysisSummary lastSummary;
 
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
-        runAnalysis();
+        AnalysisSummary summary = runAnalysis();
+        if (summary == null) return;
+        checkFailOnChange();
     }
 
     /**
@@ -179,9 +188,16 @@ public class AnalyzeMojo extends AbstractMojo {
             ChangeDetector changeDetector = new ChangeDetector();
             ChangeSet changeSet = changeDetector.detectChanges(previousRun, summary);
             lastChangeSet = changeSet;
+            lastSummary = summary;
 
             HtmlReportGenerator reportGen = new HtmlReportGenerator();
             reportGen.generateReports(summary, changeSet, reportDir.toPath(), reachableOnly, previousRun);
+
+            if (changeSet.hasPreviousRun() && changeSet.hasChanges()) {
+                PomSuggestionGenerator pomGen = new PomSuggestionGenerator();
+                Path pomDir = project.getBasedir().toPath();
+                pomGen.generateSuggestions(changeSet, summary, previousRun, pomDir);
+            }
 
             CliReporter cli = new CliReporter(getLog());
             cli.printSummary(summary, changeSet, reportDir.toPath(), verbose);
@@ -330,13 +346,14 @@ public class AnalyzeMojo extends AbstractMojo {
 
             // getDependencyTrail() returns the path from the project root to this artifact.
             // Its size minus 1 is the depth (1 = direct, 2+ = transitive).
-            int depth = artifact.getDependencyTrail() != null
-                    ? artifact.getDependencyTrail().size() - 1 : 1;
+            List<String> trail = artifact.getDependencyTrail();
+            int depth = trail != null ? trail.size() - 1 : 1;
 
             infos.add(new AnalysisOrchestrator.DependencyInfo(
                     artifact.getGroupId(), artifact.getArtifactId(), artifact.getVersion(),
                     artifact.getType(), artifact.getFile().toPath(), packages,
-                    artifact.getScope(), depth
+                    artifact.getScope(), depth,
+                    trail != null ? new ArrayList<>(trail) : List.of()
             ));
         }
 
@@ -390,5 +407,53 @@ public class AnalyzeMojo extends AbstractMojo {
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .toList();
+    }
+
+    /**
+     * Fails the build when failOnChange is enabled and there are additions or
+     * modifications to reachable sensitive APIs.
+     */
+    protected void checkFailOnChange() throws MojoFailureException {
+        if (!failOnChange || lastChangeSet == null || !lastChangeSet.hasPreviousRun()) {
+            return;
+        }
+
+        if (lastSummary == null) return;
+
+        boolean hasReachableAdditions = false;
+        int addedCount = 0;
+        int modifiedDepCount = 0;
+
+        for (DependencyReport added : lastChangeSet.getAddedDependencies()) {
+            long reachable = added.getSensitiveApis().stream()
+                    .filter(api -> lastSummary.isReachable(added.gav(), api.sensitiveApi()))
+                    .count();
+            if (reachable > 0) {
+                hasReachableAdditions = true;
+                addedCount += reachable;
+            }
+        }
+
+        for (ChangeSet.DependencyChange mod : lastChangeSet.getModifiedDependencies()) {
+            long reachableAdded = mod.addedApis().stream()
+                    .filter(api -> lastSummary.isReachable(mod.gav(), api.sensitiveApi()))
+                    .count();
+            if (reachableAdded > 0) {
+                hasReachableAdditions = true;
+                addedCount += reachableAdded;
+                modifiedDepCount++;
+            }
+        }
+
+        if (hasReachableAdditions) {
+            String pomSuggestion = project.getBasedir().toPath()
+                    .resolve("pom-theo-suggestions.xml").toString();
+            throw new MojoFailureException(
+                    "Reachable sensitive API changes detected: " + addedCount + " new APIs across "
+                    + (lastChangeSet.getAddedDependencies().size() + modifiedDepCount)
+                    + " dependencies. Review changes.html and consider applying suggestions from "
+                    + pomSuggestion
+                    + ". To proceed, update the baseline with theo:snapshot or disable with -Dtheo.failOnChange=false.");
+        }
     }
 }

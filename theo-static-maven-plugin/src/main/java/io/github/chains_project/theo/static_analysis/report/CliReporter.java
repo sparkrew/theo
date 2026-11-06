@@ -44,6 +44,21 @@ public class CliReporter {
                 .filter(DependencyReport::hasSensitiveApis).count();
         log.info("Analyzed " + totalDeps + " dependencies, " + depsWithApis + " have sensitive API access.");
 
+        long directReachable = summary.getDependencyReports().stream()
+                .filter(d -> !d.isTransitive())
+                .filter(d -> d.getSensitiveApis().stream()
+                        .anyMatch(api -> summary.isReachable(d.gav(), api.sensitiveApi())))
+                .count();
+        long transitiveReachable = summary.getDependencyReports().stream()
+                .filter(DependencyReport::isTransitive)
+                .filter(d -> d.getSensitiveApis().stream()
+                        .anyMatch(api -> summary.isReachable(d.gav(), api.sensitiveApi())))
+                .count();
+        if (transitiveReachable > 0) {
+            log.info("Reachable sensitive APIs from: " + directReachable + " direct deps, "
+                    + transitiveReachable + " transitive deps.");
+        }
+
         // Changes section
         if (!changeSet.hasPreviousRun()) {
             log.info("First analysis run — no previous data to compare against.");

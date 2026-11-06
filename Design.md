@@ -126,6 +126,32 @@ The `snapshot` goal saves the current analysis, auto-generating a label from the
 
 Snapshots always store only reachable APIs regardless of the analysis mode, making them comparable across `reachableOnly` and full analysis runs.
 
+### Build gate (`failOnChange`)
+
+The `theo.failOnChange` flag turns Theo from an informational tool into an enforceable gate. When enabled, the `analyze` goal throws a `MojoFailureException` if any reachable sensitive APIs were added or modified since the last run. Removals are not flagged because they reduce the privilege surface.
+
+The check runs after reports are generated, so developers always have full diagnostic output even when the build fails. The error message points to `changes.html` and the POM suggestion file for actionable next steps.
+
+### POM suggestions (`pom-theo-suggestions.xml`)
+
+When changes are detected, Theo generates a `pom-theo-suggestions.xml` in the project root containing `<dependencyManagement>` entries to revert version-changed dependencies. This is generated regardless of `failOnChange` — it serves as a convenience even when the build is not gated.
+
+For transitive dependencies, the suggestion includes comments showing the full dependency trail and which direct dependency pulls them in. Since developers cannot directly control transitive dependency versions, `<dependencyManagement>` is the standard Maven mechanism to pin them. The file is not a valid standalone POM — it is a snippet meant to be reviewed and selectively applied.
+
+### Dependency trail tracking
+
+Each `DependencyReport` stores the full Maven dependency trail from project root to the artifact. This comes from `Artifact.getDependencyTrail()` at analysis time and is persisted alongside the report. For cached dependency reports, the trail is refreshed from the current Maven resolution on each run, since the trail can change (e.g., a dependency may become transitive through a different path) even when the dependency itself is unchanged.
+
+The trail enables two features: the "pulled in by" annotation in HTML reports, and the trail comments in POM suggestions. The `getDirectParentGav()` helper returns the immediate parent in the trail — the dependency that directly depends on this transitive artifact.
+
+### Direct vs transitive breakdown in reachable report
+
+The reachable report's summary and stats table break down dependencies by depth: direct (depth 1) vs transitive (depth 2+). This highlights a key risk signal — reachable sensitive APIs from transitive dependencies are harder to audit and control because the developer did not explicitly choose those dependencies. The breakdown appears only when transitive dependencies are present, keeping the report clean for projects that use `theo.directOnly=true`.
+
+## Future work
+
+- **GitHub Action integration**: A CI integration that posts reachable API change summaries as PR comments, making the security review part of code review.
+
 ## Extending
 
 To add new sensitive APIs, edit `theo-commons/src/main/resources/sensitive_apis.json`. Each entry requires:

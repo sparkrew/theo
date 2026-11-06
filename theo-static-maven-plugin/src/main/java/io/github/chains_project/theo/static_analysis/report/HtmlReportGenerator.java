@@ -196,8 +196,16 @@ public class HtmlReportGenerator {
 
         Map<String, DependencyReport> reportsByGav = indexByGav(reachableDeps);
 
+        long directDepCount = reachableDeps.stream().filter(d -> !d.isTransitive()).count();
+        long transitiveDepCount = reachableDeps.stream().filter(DependencyReport::isTransitive).count();
+
         content.append("<p class=\"stats\">").append(reachableDeps.size())
-            .append(" dependencies with reachable sensitive APIs</p>\n");
+            .append(" dependencies with reachable sensitive APIs");
+        if (transitiveDepCount > 0) {
+            content.append(" (").append(directDepCount).append(" direct, ")
+                .append(transitiveDepCount).append(" transitive)");
+        }
+        content.append("</p>\n");
 
         // Group: category -> subcategory -> depGav -> list of reachable entries
         Map<String, Map<String, Map<String, List<SensitiveApiEntry>>>> grouped = new LinkedHashMap<>();
@@ -205,12 +213,16 @@ public class HtmlReportGenerator {
             grouped.put(cat, new TreeMap<>());
         }
 
-        // Per-category stats: unique API names and unique dep GAVs
+        // Per-category stats: unique API names and unique dep GAVs (split by direct/transitive)
         Map<String, Set<String>> apisByCategory = new LinkedHashMap<>();
         Map<String, Set<String>> depsByCategory = new LinkedHashMap<>();
+        Map<String, Set<String>> directDepsByCategory = new LinkedHashMap<>();
+        Map<String, Set<String>> transitiveDepsByCategory = new LinkedHashMap<>();
         for (String cat : CATEGORY_ORDER) {
             apisByCategory.put(cat, new HashSet<>());
             depsByCategory.put(cat, new HashSet<>());
+            directDepsByCategory.put(cat, new HashSet<>());
+            transitiveDepsByCategory.put(cat, new HashSet<>());
         }
 
         Map<String, List<SensitiveApiEntry>> reachableEntries = summary.getReachableEntries();
@@ -232,10 +244,16 @@ public class HtmlReportGenerator {
                     .add(entry);
                 apisByCategory.computeIfAbsent(cat, k -> new HashSet<>()).add(entry.sensitiveApi());
                 depsByCategory.computeIfAbsent(cat, k -> new HashSet<>()).add(dep.gav());
+                if (dep.isTransitive()) {
+                    transitiveDepsByCategory.computeIfAbsent(cat, k -> new HashSet<>()).add(dep.gav());
+                } else {
+                    directDepsByCategory.computeIfAbsent(cat, k -> new HashSet<>()).add(dep.gav());
+                }
             }
         }
 
-        buildCategoryStatsTable(content, apisByCategory, depsByCategory);
+        buildReachableStatsTable(content, apisByCategory, depsByCategory,
+                directDepsByCategory, transitiveDepsByCategory);
 
         for (String category : CATEGORY_ORDER) {
             Map<String, Map<String, List<SensitiveApiEntry>>> subcategories = grouped.get(category);
@@ -551,6 +569,10 @@ public class HtmlReportGenerator {
         if (!parts.isEmpty()) {
             sb.append(" <span class=\"dep-meta\">").append(String.join(", ", parts)).append("</span>");
         }
+        if (dep.isTransitive() && dep.getDirectParentGav() != null) {
+            sb.append(" <span class=\"dep-meta transitive-warning\">pulled in by: ")
+                .append(escapeHtml(dep.getDirectParentGav())).append("</span>");
+        }
         return sb.toString();
     }
 
@@ -646,6 +668,59 @@ public class HtmlReportGenerator {
         content.append("<tr><th>Total</th>")
             .append("<td class=\"num\">").append(allDirect.size()).append("</td>")
             .append("<td class=\"num\">").append(allIndirect.size()).append("</td></tr>\n");
+        content.append("</table>\n");
+    }
+
+    /**
+     * Renders the reachable report stats table with direct/transitive dep breakdown.
+     */
+    private void buildReachableStatsTable(StringBuilder content,
+                                           Map<String, Set<String>> apisByCategory,
+                                           Map<String, Set<String>> depsByCategory,
+                                           Map<String, Set<String>> directDepsByCategory,
+                                           Map<String, Set<String>> transitiveDepsByCategory) {
+        boolean hasAny = apisByCategory.values().stream().anyMatch(s -> !s.isEmpty());
+        if (!hasAny) return;
+
+        boolean hasTransitive = transitiveDepsByCategory.values().stream().anyMatch(s -> !s.isEmpty());
+
+        content.append("<table class=\"stats-table\">\n");
+        if (hasTransitive) {
+            content.append("<tr><th></th><th>APIs</th><th>Deps</th><th>Direct</th><th>Transitive</th></tr>\n");
+        } else {
+            content.append("<tr><th></th><th>APIs</th><th>Deps</th></tr>\n");
+        }
+        Set<String> allApis = new HashSet<>();
+        Set<String> allDeps = new HashSet<>();
+        Set<String> allDirect = new HashSet<>();
+        Set<String> allTransitive = new HashSet<>();
+        for (String cat : CATEGORY_ORDER) {
+            Set<String> apis = apisByCategory.getOrDefault(cat, Set.of());
+            Set<String> deps = depsByCategory.getOrDefault(cat, Set.of());
+            Set<String> direct = directDepsByCategory.getOrDefault(cat, Set.of());
+            Set<String> transitive = transitiveDepsByCategory.getOrDefault(cat, Set.of());
+            if (apis.isEmpty()) continue;
+            allApis.addAll(apis);
+            allDeps.addAll(deps);
+            allDirect.addAll(direct);
+            allTransitive.addAll(transitive);
+            content.append("<tr><th>").append(escapeHtml(cat)).append("</th>")
+                .append("<td class=\"num\">").append(apis.size()).append("</td>")
+                .append("<td class=\"num\">").append(deps.size()).append("</td>");
+            if (hasTransitive) {
+                content.append("<td class=\"num\">").append(direct.size()).append("</td>")
+                    .append("<td class=\"num\">").append(transitive.size()).append("</td>");
+            }
+            content.append("</tr>\n");
+        }
+        content.append("<tr><th>Total</th>")
+            .append("<td class=\"num\">").append(allApis.size()).append("</td>")
+            .append("<td class=\"num\">").append(allDeps.size()).append("</td>");
+        if (hasTransitive) {
+            content.append("<td class=\"num\">").append(allDirect.size()).append("</td>")
+                .append("<td class=\"num\">").append(allTransitive.size()).append("</td>");
+        }
+        content.append("</tr>\n");
         content.append("</table>\n");
     }
 

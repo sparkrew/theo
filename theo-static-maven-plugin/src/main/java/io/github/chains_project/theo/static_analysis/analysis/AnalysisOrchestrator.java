@@ -70,6 +70,9 @@ public class AnalysisOrchestrator {
                 DependencyReport cached = cacheManager.loadDependencyReport(key);
                 if (cached != null) {
                     log.info("Using cached result for {}", key);
+                    cached.setScope(dep.scope());
+                    cached.setDependencyDepth(dep.dependencyDepth());
+                    cached.setDependencyTrail(dep.dependencyTrail());
                     reports.add(cached);
                     cachedCount++;
                     continue;
@@ -85,6 +88,7 @@ public class AnalysisOrchestrator {
             );
             report.setScope(dep.scope());
             report.setDependencyDepth(dep.dependencyDepth());
+            report.setDependencyTrail(dep.dependencyTrail());
             cacheManager.storeDependencyReport(key, report);
             reports.add(report);
         }
@@ -211,6 +215,7 @@ public class AnalysisOrchestrator {
             if (matched != null) {
                 report.setScope(matched.scope());
                 report.setDependencyDepth(matched.dependencyDepth());
+                report.setDependencyTrail(matched.dependencyTrail());
             }
 
             reports.add(report);
@@ -255,6 +260,6 @@ public class AnalysisOrchestrator {
     public record DependencyInfo(
             String groupId, String artifactId, String version, String type,
             Path jarPath, Set<String> packageNames,
-            String scope, int dependencyDepth
+            String scope, int dependencyDepth, List<String> dependencyTrail
     ) {}
 }
