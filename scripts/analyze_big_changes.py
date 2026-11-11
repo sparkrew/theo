@@ -231,7 +231,24 @@ def classify_dep_change(dep_entry, change_type, prev_dep_cats, cur_dep_cats):
         record["apisInCurrent"] = 0
         record["apisDelta"] = -dep_entry.get("apis", 0)
         cat_contrib = {c: -v for c, v in prev_dep_cats.get(dep, {}).items()}
-    else:  # changed
+    elif change_type == "updated":
+        record["oldDep"] = dep_entry.get("oldDep", "")
+        record["newDep"] = dep_entry.get("newDep", "")
+        record["previousVersion"] = dep_entry.get("oldVersion", "")
+        record["currentVersion"] = dep_entry.get("newVersion", "")
+        record["apisInPrevious"] = dep_entry.get("apisBefore", 0)
+        record["apisInCurrent"] = dep_entry.get("apisAfter", 0)
+        record["apisDelta"] = dep_entry.get("apisAfter", 0) - dep_entry.get("apisBefore", 0)
+        old_key = dep_entry.get("oldDep", "")
+        new_key = dep_entry.get("newDep", "")
+        cur_cats = cur_dep_cats.get(new_key, {})
+        prev_cats = prev_dep_cats.get(old_key, {})
+        cat_contrib = {}
+        for cat in set(list(cur_cats.keys()) + list(prev_cats.keys())):
+            diff = cur_cats.get(cat, 0) - prev_cats.get(cat, 0)
+            if diff != 0:
+                cat_contrib[cat] = diff
+    else:  # changed (client code change — same g:a:v, different count)
         record["apisInPrevious"] = dep_entry.get("from", 0)
         record["apisInCurrent"] = dep_entry.get("to", 0)
         record["apisDelta"] = dep_entry.get("to", 0) - dep_entry.get("from", 0)
@@ -249,55 +266,6 @@ def classify_dep_change(dep_entry, change_type, prev_dep_cats, cur_dep_cats):
         record["categoryContribution"] = {}
 
     return record
-
-
-def find_version_bumps(changed_deps, prev_reachability, cur_reachability):
-    """Identify deps in changedDeps that are version bumps (same GA, different version)."""
-    bumps = []
-    prev_detail = prev_reachability.get("depsDetail", {})
-    cur_detail = cur_reachability.get("depsDetail", {})
-
-    for cd in changed_deps:
-        dep = cd["dep"]
-        ga = dep_ga(dep)
-        cur_version = dep_version(dep)
-        prev_version = None
-        for pd in prev_detail:
-            if dep_ga(pd) == ga and pd != dep:
-                prev_version = dep_version(pd)
-                break
-        if prev_version and prev_version != cur_version:
-            bumps.append({
-                "dep": ga,
-                "from": prev_version,
-                "to": cur_version,
-            })
-    return bumps
-
-
-def detect_version_bumps_from_add_remove(added_deps, removed_deps):
-    """Detect version bumps that appear as removed + added (same GA, different version)."""
-    bumps = []
-    added_by_ga = {}
-    for ad in added_deps:
-        ga = dep_ga(ad["dep"])
-        added_by_ga[ga] = ad
-
-    for rd in removed_deps:
-        ga = dep_ga(rd["dep"])
-        if ga in added_by_ga:
-            ad = added_by_ga[ga]
-            old_ver = dep_version(rd["dep"])
-            new_ver = dep_version(ad["dep"])
-            if old_ver != new_ver:
-                bumps.append({
-                    "dep": ga,
-                    "from": old_ver,
-                    "to": new_ver,
-                    "apisBefore": rd.get("apis", 0),
-                    "apisAfter": ad.get("apis", 0),
-                })
-    return bumps
 
 
 def analyze_single_change(entry, prev_entry, commit_dep_cats, repo_url):
@@ -348,33 +316,68 @@ def analyze_single_change(entry, prev_entry, commit_dep_cats, repo_url):
         cur_dep_cats.update(cur_cats)
         prev_dep_cats.update(prev_cats)
 
-    # Dependency details
-    dep_details = []
+    # --- Separate version bumps from true adds/removes ---
+    # A version bump appears as remove of g:a:v1 + add of g:a:v2 (same GA).
+    added_by_ga = {}
     for ad in all_added_deps:
-        dep_details.append(classify_dep_change(ad, "added", prev_dep_cats, cur_dep_cats))
+        ga = dep_ga(ad["dep"])
+        added_by_ga.setdefault(ga, []).append(ad)
+
+    removed_by_ga = {}
     for rd in all_removed_deps:
+        ga = dep_ga(rd["dep"])
+        removed_by_ga.setdefault(ga, []).append(rd)
+
+    updated_gas = set(added_by_ga.keys()) & set(removed_by_ga.keys())
+
+    pure_added = [ad for ad in all_added_deps if dep_ga(ad["dep"]) not in updated_gas]
+    pure_removed = [rd for rd in all_removed_deps if dep_ga(rd["dep"]) not in updated_gas]
+
+    version_updates = []
+    for ga in sorted(updated_gas):
+        rd = removed_by_ga[ga][0]
+        ad = added_by_ga[ga][0]
+        version_updates.append({
+            "dep": ga,
+            "ga": ga,
+            "oldDep": rd["dep"],
+            "newDep": ad["dep"],
+            "oldVersion": dep_version(rd["dep"]),
+            "newVersion": dep_version(ad["dep"]),
+            "apisBefore": rd.get("apis", 0),
+            "apisAfter": ad.get("apis", 0),
+        })
+
+    # Dependency details with correct change types
+    dep_details = []
+    for ad in pure_added:
+        dep_details.append(classify_dep_change(ad, "added", prev_dep_cats, cur_dep_cats))
+    for rd in pure_removed:
         dep_details.append(classify_dep_change(rd, "removed", prev_dep_cats, cur_dep_cats))
+    for vu in version_updates:
+        dep_details.append(classify_dep_change(vu, "updated", prev_dep_cats, cur_dep_cats))
     for cd in all_changed_deps:
         dep_details.append(classify_dep_change(cd, "changed", prev_dep_cats, cur_dep_cats))
     dep_details.sort(key=lambda d: -abs(d.get("apisDelta", 0)))
 
-    # Version bumps from add/remove pairs
-    version_bumps_from_pairs = detect_version_bumps_from_add_remove(
-        all_added_deps, all_removed_deps)
-
-    # Possible replacements
+    # Possible replacements (only among truly added/removed, not version bumps)
     replacements = find_possible_replacements(
-        all_added_deps, all_removed_deps, cur_dep_cats, prev_dep_cats)
+        pure_added, pure_removed, cur_dep_cats, prev_dep_cats)
 
     # Client code change detection
-    client_code_only = (not all_added_deps and not all_removed_deps
+    client_code_only = (not pure_added and not pure_removed
+                        and not version_updates
                         and not all_changed_deps and total_apis_delta != 0)
 
     # Change classification
     classification = {
-        "depsAdded": [ad["dep"] for ad in all_added_deps],
-        "depsRemoved": [rd["dep"] for rd in all_removed_deps],
-        "versionBumps": version_bumps_from_pairs,
+        "depsAdded": [ad["dep"] for ad in pure_added],
+        "depsRemoved": [rd["dep"] for rd in pure_removed],
+        "depsUpdated": [{"dep": vu["ga"], "from": vu["oldVersion"],
+                         "to": vu["newVersion"],
+                         "apisBefore": vu["apisBefore"],
+                         "apisAfter": vu["apisAfter"]}
+                        for vu in version_updates],
         "depsChanged": [cd["dep"] for cd in all_changed_deps],
         "possibleReplacements": replacements,
         "clientCodeChangeOnly": client_code_only,
@@ -403,8 +406,9 @@ def analyze_single_change(entry, prev_entry, commit_dep_cats, repo_url):
             "totalDepsDelta": total_deps_delta,
             "apisAdded": total_added_apis,
             "apisRemoved": total_removed_apis,
-            "depsAdded": len(all_added_deps),
-            "depsRemoved": len(all_removed_deps),
+            "depsAdded": len(pure_added),
+            "depsRemoved": len(pure_removed),
+            "depsUpdated": len(version_updates),
             "depsChanged": len(all_changed_deps),
         },
         "categoryBreakdown": dict(category_breakdown),
@@ -733,22 +737,22 @@ def _badges_html(classification):
     badges = []
     n_add = len(classification.get("depsAdded", []))
     n_rm = len(classification.get("depsRemoved", []))
+    n_upd = len(classification.get("depsUpdated", []))
     n_chg = len(classification.get("depsChanged", []))
     n_repl = len(classification.get("possibleReplacements", []))
-    n_bump = len(classification.get("versionBumps", []))
 
     if n_add:
         badges.append(f'<span class="badge badge-added">+{n_add} dep{"s" if n_add > 1 else ""}</span>')
     if n_rm:
         badges.append(f'<span class="badge badge-removed">-{n_rm} dep{"s" if n_rm > 1 else ""}</span>')
+    if n_upd:
+        badges.append(f'<span class="badge badge-bump">{n_upd} updated</span>')
     if n_chg:
-        badges.append(f'<span class="badge badge-changed">{n_chg} changed</span>')
-    if n_bump:
-        badges.append(f'<span class="badge badge-bump">{n_bump} bump{"s" if n_bump > 1 else ""}</span>')
+        badges.append(f'<span class="badge badge-changed">{n_chg} client code</span>')
     if n_repl:
         badges.append(f'<span class="badge badge-replacement">{n_repl} replacement{"s" if n_repl > 1 else ""}?</span>')
     if classification.get("clientCodeChangeOnly"):
-        badges.append('<span class="badge badge-client">client code</span>')
+        badges.append('<span class="badge badge-client">client code only</span>')
     return " ".join(badges)
 
 
@@ -819,34 +823,53 @@ def _build_change_details(changes):
         # Dependency detail rows
         dep_rows = []
         for dd in deps[:30]:
-            chg_badge = {"added": "badge-added", "removed": "badge-removed", "changed": "badge-changed"}
+            chg_badge = {
+                "added": "badge-added", "removed": "badge-removed",
+                "updated": "badge-bump", "changed": "badge-changed",
+            }
             badge_cls = chg_badge.get(dd["changeType"], "")
+            type_label = dd["changeType"]
+            if type_label == "changed":
+                type_label = "client code"
             api_cls = _delta_class(dd["apisDelta"])
             cat_parts = []
             for cat, val in dd.get("categoryContribution", {}).items():
                 cat_parts.append(f"{cat}: {_delta_sign(val)}")
+
+            dep_display = _esc(dd['dep'])
+            if dd["changeType"] == "updated":
+                prev_ver = dd.get("previousVersion", "")
+                cur_ver = dd.get("currentVersion", "")
+                dep_display = (f"{_esc(dd['groupArtifact'])}"
+                               f"<br><span style='font-size:0.75rem;color:var(--muted)'>"
+                               f"{_esc(prev_ver)} → {_esc(cur_ver)}</span>")
+
             dep_rows.append(f"""
             <tr>
-                <td class="mono">{_esc(dd['dep'])}</td>
-                <td><span class="badge {badge_cls}">{dd['changeType']}</span></td>
+                <td class="mono">{dep_display}</td>
+                <td><span class="badge {badge_cls}">{type_label}</span></td>
                 <td>{dd['apisInPrevious']}</td>
                 <td>{dd['apisInCurrent']}</td>
                 <td class="{api_cls}">{_delta_sign(dd['apisDelta'])}</td>
                 <td style="font-size:0.78rem">{', '.join(cat_parts) if cat_parts else '—'}</td>
             </tr>""")
 
-        # Version bumps
+        # Version updates
         bump_html = ""
-        if cls.get("versionBumps"):
+        if cls.get("depsUpdated"):
             bump_rows = []
-            for b in cls["versionBumps"]:
+            for b in cls["depsUpdated"]:
+                delta = b.get('apisAfter', 0) - b.get('apisBefore', 0)
+                delta_cls = _delta_class(delta)
                 bump_rows.append(f"<tr><td class='mono'>{_esc(b['dep'])}</td>"
                                  f"<td>{_esc(b.get('from', '?'))}</td>"
                                  f"<td>{_esc(b.get('to', '?'))}</td>"
-                                 f"<td>{b.get('apisBefore', '?')} → {b.get('apisAfter', '?')}</td></tr>")
+                                 f"<td>{b.get('apisBefore', '?')}</td>"
+                                 f"<td>{b.get('apisAfter', '?')}</td>"
+                                 f"<td class='{delta_cls}'>{_delta_sign(delta)}</td></tr>")
             bump_html = f"""
-            <h3>Version Bumps (same dependency, version changed)</h3>
-            <table class="dep-table"><thead><tr><th>Dependency</th><th>From</th><th>To</th><th>APIs</th></tr></thead>
+            <h3>Version Updates (same dependency, version changed)</h3>
+            <table class="dep-table"><thead><tr><th>Dependency</th><th>From</th><th>To</th><th>APIs Before</th><th>APIs After</th><th>Δ</th></tr></thead>
             <tbody>{''.join(bump_rows)}</tbody></table>"""
 
         # Replacements
@@ -882,7 +905,7 @@ def _build_change_details(changes):
                 APIs: <span class="{_delta_class(s['totalApisDelta'])}">{_delta_sign(s['totalApisDelta'])}</span>
                 (added {s['apisAdded']}, removed {s['apisRemoved']})
                 &middot; Deps: {_delta_sign(s['totalDepsDelta'])}
-                (+{s['depsAdded']} / -{s['depsRemoved']} / ~{s['depsChanged']})
+                (+{s['depsAdded']} / -{s['depsRemoved']} / ↑{s.get('depsUpdated', 0)} updated / ~{s['depsChanged']} client)
                 &middot; Modules: {', '.join(c.get('changedModules', []))}
             </p>
 
@@ -976,7 +999,7 @@ def main():
 
     # Analyze each
     big_changes = []
-    for rank_pos, (abs_delta, entry) in enumerate(page, start=args.offset + 1):
+    for rank_pos, (_, entry) in enumerate(page, start=args.offset + 1):
         idx = sha_to_idx.get(entry["sha"])
         prev_entry = timeline[idx - 1] if idx and idx > 0 else None
         change = analyze_single_change(entry, prev_entry, commit_dep_cats, repo_url)
