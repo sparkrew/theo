@@ -356,8 +356,14 @@ def classify_resolution(dep_key, cur_deps, _prev_deps):
     return "unknown", None
 
 
-def compute_cve_diffs(states):
+def compute_cve_diffs(states, timeline=None):
     """Compute CVE introductions and resolutions between consecutive commits."""
+    timeline = timeline or []
+    # Build sha->timeline entry index for category deltas
+    sha_to_tl = {}
+    for entry in timeline:
+        sha_to_tl[entry.get("sha", "")] = entry
+
     diffs = []
     for i, cur in enumerate(states):
         if i == 0:
@@ -419,6 +425,48 @@ def compute_cve_diffs(states):
             })
 
         if introduced or resolved:
+            # Group by dependency: show CVE + sensitive API changes together
+            dep_map = defaultdict(lambda: {
+                "cvesIntroduced": [], "cvesResolved": [],
+                "apisBefore": 0, "apisAfter": 0, "apisDelta": 0,
+                "versionBefore": "", "versionAfter": "",
+            })
+            for intr in introduced:
+                ga = dep_ga(intr["dep"])
+                dm = dep_map[ga]
+                dm["cvesIntroduced"].append(intr)
+                dm["apisAfter"] = intr.get("depApis", 0)
+                dm["apisBefore"] = intr.get("depApisBefore", 0)
+                dm["versionAfter"] = dep_version(intr["dep"])
+                if intr.get("previousDep"):
+                    dm["versionBefore"] = dep_version(intr["previousDep"])
+            for res in resolved:
+                ga = dep_ga(res["dep"])
+                dm = dep_map[ga]
+                dm["cvesResolved"].append(res)
+                dm["apisBefore"] = res.get("depApis", 0)
+                dm["apisAfter"] = res.get("depApisAfter", 0)
+                dm["versionBefore"] = dep_version(res["dep"])
+                if res.get("updatedTo"):
+                    dm["versionAfter"] = dep_version(res["updatedTo"])
+
+            for ga, dm in dep_map.items():
+                dm["apisDelta"] = dm["apisAfter"] - dm["apisBefore"]
+
+            dep_details = [
+                {"dep": ga, **dm}
+                for ga, dm in sorted(dep_map.items(),
+                                     key=lambda x: -(len(x[1]["cvesIntroduced"])
+                                                      + len(x[1]["cvesResolved"])))
+            ]
+
+            # Get category deltas from timeline
+            tl_entry = sha_to_tl.get(cur["sha"], {})
+            cat_deltas = {}
+            for _mod, mod_delta in (tl_entry.get("deltas") or {}).items():
+                for cat, val in mod_delta.get("categoryDeltas", {}).items():
+                    cat_deltas[cat] = cat_deltas.get(cat, 0) + val
+
             diffs.append({
                 "sha": cur["sha"], "date": cur["date"], "message": cur["message"],
                 "introduced": sorted(introduced, key=lambda x: x["cveId"]),
@@ -426,6 +474,8 @@ def compute_cve_diffs(states):
                 "totalCves": len(cur["cves"]),
                 "netChange": len(introduced) - len(resolved),
                 "isBaseline": False,
+                "depDetails": dep_details,
+                "categoryDeltas": cat_deltas,
             })
 
     return diffs
@@ -626,11 +676,7 @@ def build_summary(diffs, lifecycles):
 def generate_html(report):
     meta = report["metadata"]
     summary = report["summary"]
-    cve_timeline = report.get("cveTimeline", [])
     diffs = report["perCommit"]
-    lifecycles = report["cveLifecycles"]
-    per_dep = report["perDependency"]
-    cat_corr = report["categoryCorrelation"]
 
     # Summary cards
     cards = f"""
@@ -666,11 +712,6 @@ def generate_html(report):
             </div>
         </div>
     </div>"""
-
-    timeline_chart = json.dumps({
-        "labels": [f"{d['sha']} ({d['date']})" for d in cve_timeline],
-        "totals": [d.get("totalCves", 0) for d in cve_timeline],
-    })
 
     # Per-commit table
     commit_rows = []
@@ -722,51 +763,80 @@ def generate_html(report):
             f"<tr class='expand-row'><td colspan='7' class='expand-cell'>"
             f"{_commit_detail_html(diff)}</td></tr>")
 
-    # Lifecycle table
-    lc_rows = []
-    for lc in lifecycles[:100]:
-        sev_cls = f"sev-{lc.get('severity', '').lower()}"
-        status_badge = ('<span class="badge badge-resolved">resolved</span>'
-                        if lc["status"] == "resolved"
-                        else '<span class="badge sev-critical">open</span>')
-        method = lc.get("resolutionMethod", "—") if lc["status"] == "resolved" else "—"
-        dur = f"{lc.get('durationDays', '?')}d / {lc.get('durationCommits', '?')}c"
-        deps_str = ", ".join(lc.get("affectedDeps", [])[:3])
-        if len(lc.get("affectedDeps", [])) > 3:
-            deps_str += f" +{len(lc['affectedDeps']) - 3}"
+    # Per-dep CVE + sensitive API changes per commit
+    dep_commit_sections = []
+    for diff in diffs:
+        if diff.get("isBaseline"):
+            continue
+        dep_details = diff.get("depDetails", [])
+        if not dep_details:
+            continue
 
-        lc_rows.append(
-            f"<tr><td><a href='{_esc(lc['link'])}' target='_blank' "
-            f"class='{sev_cls}'>{_esc(lc['cveId'])}</a></td>"
-            f"<td><span class='badge {sev_cls}'>{_esc(lc.get('severity', '?'))}</span></td>"
-            f"<td>{_esc(lc.get('summary', '')[:80])}</td>"
-            f"<td class='mono'>{deps_str}</td>"
-            f"<td>{_esc(lc['firstSeen']['date'])}</td>"
-            f"<td>{_esc(lc['lastSeen']['date'])}</td>"
-            f"<td>{dur}</td>"
-            f"<td>{status_badge}</td>"
-            f"<td>{_esc(method)}</td></tr>")
+        # Category deltas for this commit
+        cat_deltas = diff.get("categoryDeltas", {})
+        cat_parts = []
+        cat_labels = {"FILESYSTEM": "FileAccess", "NETWORK": "Network",
+                      "PROCESS": "Process", "OTHER": "Other"}
+        for cat in CATEGORIES:
+            val = cat_deltas.get(cat, 0)
+            if val != 0:
+                sign = f"+{val}" if val > 0 else str(val)
+                cls = "delta-up" if val > 0 else "delta-down"
+                cat_parts.append(f"<span class='{cls}'>{cat_labels.get(cat, cat)} {sign}</span>")
+        cat_summary = " &middot; ".join(cat_parts) if cat_parts else ""
 
-    # Per-dep table
-    dep_rows = []
-    for d in per_dep[:30]:
-        dep_rows.append(
-            f"<tr><td class='mono'>{_esc(d['dep'])}</td>"
-            f"<td>{len(d.get('versionsObserved', []))}</td>"
-            f"<td>{d['totalCvesAcrossVersions']}</td>"
-            f"<td style='color:var(--red)'>{d['currentCves'] if d['currentCves'] else ''}</td>"
-            f"<td class='mono' style='font-size:0.75rem'>"
-            f"{', '.join(d.get('currentCveIds', [])[:3])}</td></tr>")
+        dep_rows = []
+        for dd in dep_details:
+            n_intro = len(dd.get("cvesIntroduced", []))
+            n_res = len(dd.get("cvesResolved", []))
+            api_delta = dd.get("apisDelta", 0)
+            api_cls = "delta-up" if api_delta > 0 else "delta-down" if api_delta < 0 else ""
+            api_sign = f"+{api_delta}" if api_delta > 0 else str(api_delta)
 
-    # Category correlation
-    cat_rows = []
-    for cat in CATEGORIES:
-        cc = cat_corr.get(cat, {})
-        cat_rows.append(
-            f"<tr><td>{cat}</td>"
-            f"<td>{cc.get('totalCves', 0)}</td>"
-            f"<td>{cc.get('depsWithBothCveAndApis', 0)}</td>"
-            f"<td>{cc.get('cveMatchesReachableCategory', 0)}</td></tr>")
+            ver_str = ""
+            if dd.get("versionBefore") and dd.get("versionAfter"):
+                ver_str = f"{_esc(dd['versionBefore'])} → {_esc(dd['versionAfter'])}"
+            elif dd.get("versionAfter"):
+                ver_str = f"→ {_esc(dd['versionAfter'])}"
+            elif dd.get("versionBefore"):
+                ver_str = f"{_esc(dd['versionBefore'])} →"
+
+            cve_badges = []
+            for ci in dd.get("cvesIntroduced", []):
+                sc = f"sev-{ci.get('severity', '').lower()}"
+                cve_badges.append(f"<span class='badge {sc}'>+{_esc(ci['cveId'])}</span>")
+            for cr in dd.get("cvesResolved", []):
+                cve_badges.append(f"<span class='badge badge-resolved'>-{_esc(cr['cveId'])}</span>")
+
+            dep_rows.append(
+                f"<tr>"
+                f"<td class='mono'>{_esc(dd['dep'])}</td>"
+                f"<td style='font-size:0.78rem'>{ver_str}</td>"
+                f"<td style='color:var(--red)'>{'+' + str(n_intro) if n_intro else ''}</td>"
+                f"<td style='color:var(--green)'>{'-' + str(n_res) if n_res else ''}</td>"
+                f"<td>{dd.get('apisBefore', 0)}</td>"
+                f"<td>{dd.get('apisAfter', 0)}</td>"
+                f"<td class='{api_cls}'>{api_sign}</td>"
+                f"<td style='font-size:0.75rem'>{' '.join(cve_badges)}</td>"
+                f"</tr>")
+
+        dep_commit_sections.append(f"""
+        <div style="margin-bottom:20px">
+            <h3 style="font-size:0.9rem;margin-bottom:4px">
+                <span class="mono">{_esc(diff['sha'])}</span>
+                <span style="color:var(--muted);font-weight:400"> — {_esc(diff['date'])} — {_esc(diff['message'][:80])}</span>
+            </h3>
+            {'<p style="font-size:0.82rem;margin-bottom:8px">Sensitive API changes: ' + cat_summary + '</p>' if cat_summary else ''}
+            <table class="dep-detail-table">
+                <thead><tr>
+                    <th>Dependency</th><th>Version</th>
+                    <th>CVEs +</th><th>CVEs -</th>
+                    <th>APIs Before</th><th>APIs After</th><th>APIs Δ</th>
+                    <th>CVE Details</th>
+                </tr></thead>
+                <tbody>{''.join(dep_rows)}</tbody>
+            </table>
+        </div>""")
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -774,7 +844,6 @@ def generate_html(report):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CVE Tracking — {_esc(meta.get('project', ''))}</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 <style>
 :root {{
     --bg: #fafafa; --fg: #1a1a1a; --card: #fff; --border: #e0e0e0;
@@ -811,6 +880,7 @@ h1 {{ font-size: 1.5rem; margin-bottom: 4px; }}
 .card-sub {{ font-size: 0.78rem; color: var(--muted); margin-top: 4px; }}
 .section {{ background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 24px; margin-bottom: 24px; }}
 .section h2 {{ font-size: 1.1rem; margin-bottom: 16px; }}
+.section h3 {{ font-size: 0.95rem; color: var(--muted); margin-bottom: 8px; margin-top: 16px; }}
 table {{ border-collapse: collapse; width: 100%; font-size: 0.85rem; }}
 th, td {{ border: 1px solid var(--border); padding: 6px 10px; text-align: left; }}
 th {{ background: var(--bg); font-weight: 600; position: sticky; top: 0; }}
@@ -841,11 +911,12 @@ th {{ background: var(--bg); font-weight: 600; position: sticky; top: 0; }}
 .expand-cell {{ padding: 16px 20px; background: var(--expand-bg); }}
 a {{ color: var(--blue); text-decoration: none; }}
 a:hover {{ text-decoration: underline; }}
-.chart-container {{ height: 300px; margin: 16px 0; }}
 .detail-section {{ margin-top: 12px; }}
 .detail-section h4 {{ font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; }}
 .detail-table {{ font-size: 0.8rem; }}
 .detail-table td {{ padding: 4px 8px; }}
+.dep-detail-table {{ font-size: 0.82rem; }}
+.dep-detail-table td {{ padding: 5px 8px; }}
 </style>
 </head>
 <body>
@@ -863,13 +934,6 @@ a:hover {{ text-decoration: underline; }}
 {cards}
 
 <div class="section">
-    <h2>CVE Count Over Time</h2>
-    <div class="chart-container">
-        <canvas id="timelineChart"></canvas>
-    </div>
-</div>
-
-<div class="section">
     <h2>CVE Changes Per Commit</h2>
     <div style="overflow-x:auto">
     <table>
@@ -880,72 +944,20 @@ a:hover {{ text-decoration: underline; }}
 </div>
 
 <div class="section">
-    <h2>CVE Lifecycles</h2>
-    <p style="font-size:0.82rem;color:var(--muted);margin-bottom:12px">Open CVEs first, then sorted by duration (longest first)</p>
-    <div style="overflow-x:auto">
-    <table>
-        <thead><tr><th>CVE</th><th>Severity</th><th>Summary</th><th>Dependencies</th><th>First Seen</th><th>Last Seen</th><th>Duration</th><th>Status</th><th>Resolution</th></tr></thead>
-        <tbody>{''.join(lc_rows)}</tbody>
-    </table>
-    </div>
-</div>
-
-<div class="section">
-    <h2>Per-Dependency CVE Summary (top 30)</h2>
-    <div style="overflow-x:auto">
-    <table>
-        <thead><tr><th>Dependency</th><th>Versions</th><th>Total CVEs</th><th>Current</th><th>Current CVE IDs</th></tr></thead>
-        <tbody>{''.join(dep_rows)}</tbody>
-    </table>
-    </div>
-</div>
-
-<div class="section">
-    <h2>Category Correlation</h2>
-    <p style="font-size:0.82rem;color:var(--muted);margin-bottom:12px">
-        How often a CVE's CWE category matches the dependency's reachable sensitive API category.
-        Higher match = stronger (though not conclusive) signal of actual vulnerability exposure.
+    <h2>Per-Dependency CVE &amp; Sensitive API Changes</h2>
+    <p style="font-size:0.82rem;color:var(--muted);margin-bottom:16px">
+        For each commit with CVE changes, shows how each involved dependency's CVEs and sensitive API count changed together.
     </p>
-    <table>
-        <thead><tr><th>Category</th><th>CVEs in Category</th><th>Deps with CVE + Reachable APIs</th><th>CVE Category Matches Reachable Category</th></tr></thead>
-        <tbody>{''.join(cat_rows)}</tbody>
-    </table>
+    {''.join(dep_commit_sections)}
 </div>
 
 <script>
-Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim() || '#1a1a1a';
-Chart.defaults.borderColor = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#e0e0e0';
-
 function toggleCommit(row) {{
     const next = row.nextElementSibling;
     if (next && next.classList.contains('expand-row')) {{
         next.classList.toggle('open');
     }}
 }}
-
-const tdata = {timeline_chart};
-new Chart(document.getElementById('timelineChart'), {{
-    type: 'line',
-    data: {{
-        labels: tdata.labels,
-        datasets: [{{
-            label: 'Total CVEs',
-            data: tdata.totals,
-            borderColor: getComputedStyle(document.documentElement).getPropertyValue('--red').trim(),
-            backgroundColor: 'rgba(192,57,43,0.1)',
-            borderWidth: 2, pointRadius: 1, pointHitRadius: 6,
-            fill: true, tension: 0.3,
-        }}]
-    }},
-    options: {{
-        responsive: true, maintainAspectRatio: false,
-        plugins: {{ legend: {{ position: 'bottom' }} }},
-        scales: {{
-            x: {{ ticks: {{ maxRotation: 45, autoSkip: true, maxTicksLimit: 25 }} }},
-            y: {{ beginAtZero: true, title: {{ display: true, text: 'CVE count' }} }}
-        }}
-    }}
-}});
 </script>
 </body>
 </html>"""
@@ -1061,29 +1073,17 @@ def main():
     states = build_commit_cve_states(timeline, osv_cache)
 
     # Compute diffs
-    diffs = compute_cve_diffs(states)
+    diffs = compute_cve_diffs(states, timeline)
     commits_with_changes = sum(1 for d in diffs
                                if not d.get("isBaseline")
                                and (d.get("introduced") or d.get("resolved")))
     print(f"  {commits_with_changes} commits with CVE changes")
 
-    # Build lifecycles
+    # Build lifecycles (for summary stats)
     lifecycles = build_lifecycles(states)
-
-    # Per-dep summary
-    per_dep = build_per_dep_summary(states, osv_cache)
-
-    # Category correlation
-    cat_corr = build_category_correlation(states, osv_cache)
 
     # Summary
     summary = build_summary(diffs, lifecycles)
-
-    # Full CVE count at every commit (for the timeline chart)
-    cve_timeline = [
-        {"sha": s["sha"], "date": s["date"], "totalCves": len(s["cves"])}
-        for s in states
-    ]
 
     report = {
         "metadata": {
@@ -1100,11 +1100,7 @@ def main():
             "dataComplete": len(failed_deps) == 0,
         },
         "summary": summary,
-        "cveTimeline": cve_timeline,
         "perCommit": diffs,
-        "cveLifecycles": lifecycles,
-        "perDependency": per_dep,
-        "categoryCorrelation": cat_corr,
     }
 
     json_path = out_dir / "cve_tracking.json"
