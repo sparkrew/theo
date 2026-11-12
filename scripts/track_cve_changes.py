@@ -31,6 +31,12 @@ from pathlib import Path
 
 CATEGORIES = ["FILESYSTEM", "NETWORK", "PROCESS", "OTHER"]
 
+
+def load_json(path):
+    with open(path) as f:
+        return json.load(f)
+
+
 # ---------------------------------------------------------------------------
 # CWE -> Theo category mapping (mirrors CweCategoryMapper.java)
 # ---------------------------------------------------------------------------
@@ -103,8 +109,6 @@ def _osv_query_batch(gavs):
         })
 
     payload = json.dumps({"queries": queries}).encode("utf-8")
-    last_error = None
-
     for attempt in range(1, MAX_RETRIES + 1):
         req = urllib.request.Request(
             OSV_BATCH_URL,
@@ -115,7 +119,6 @@ def _osv_query_batch(gavs):
             with urllib.request.urlopen(req, timeout=60) as resp:
                 return json.loads(resp.read().decode("utf-8")), []
         except (urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
-            last_error = e
             if attempt < MAX_RETRIES:
                 wait = INITIAL_BACKOFF * (2 ** (attempt - 1))
                 wait = min(wait, 120)
@@ -301,7 +304,7 @@ def build_commit_cve_states(timeline, osv_cache):
         cve_set = {}  # cve_id -> {cve_info + dep}
         dep_detail_all = {}
 
-        for mod, mod_data in reach.items():
+        for _mod, mod_data in reach.items():
             for dep_key, api_count in mod_data.get("depsDetail", {}).items():
                 dep_detail_all[dep_key] = api_count
                 for cve in osv_cache.get(dep_key, []):
@@ -336,7 +339,7 @@ def classify_introduction(dep_key, prev_deps):
     return "alreadyPresent"
 
 
-def classify_resolution(dep_key, cur_deps, prev_deps):
+def classify_resolution(dep_key, cur_deps, _prev_deps):
     """How was this CVE resolved?"""
     ga = dep_ga(dep_key)
     if dep_key not in cur_deps:
@@ -349,7 +352,6 @@ def classify_resolution(dep_key, cur_deps, prev_deps):
                     break
             return "depUpdated", new_version
         else:
-            prev_gas_in_cur = {dep_ga(d) for d in cur_deps}
             return "depRemoved", None
     return "unknown", None
 
@@ -506,7 +508,7 @@ def build_per_dep_summary(states, osv_cache):
         "sensitiveApiTrend": [],
     })
 
-    for i, state in enumerate(states):
+    for state in states:
         seen_gas = set()
         for dep_key, api_count in state["depsDetail"].items():
             ga = dep_ga(dep_key)
@@ -566,7 +568,7 @@ def build_category_correlation(states, osv_cache):
 
                 reach = state.get("reachability", {})
                 dep_cats = set()
-                for mod, mod_data in (reach.items() if isinstance(reach, dict) else []):
+                for _mod, mod_data in (reach.items() if isinstance(reach, dict) else []):
                     if dep_key in mod_data.get("depsDetail", {}):
                         dep_cats.update(mod_data.get("reachableApisByCategory", {}).keys())
 
@@ -629,11 +631,6 @@ def generate_html(report):
     per_dep = report["perDependency"]
     cat_corr = report["categoryCorrelation"]
 
-    sev_colors = {
-        "CRITICAL": "--red", "HIGH": "--orange",
-        "MEDIUM": "--yellow", "LOW": "--blue",
-    }
-
     # Summary cards
     cards = f"""
     <div class="cards">
@@ -669,23 +666,6 @@ def generate_html(report):
         </div>
     </div>"""
 
-    # Timeline chart data
-    chart_dates = []
-    chart_crit = []
-    chart_high = []
-    chart_med = []
-    chart_low = []
-    chart_other = []
-
-    for diff in diffs:
-        chart_dates.append(f"{diff['sha']} ({diff['date']})")
-        total = diff.get("totalCves", 0)
-        # We don't have severity breakdown per commit in diffs, so use total
-        # For the chart, we'll track cumulative total
-        chart_crit.append(total)
-
-    # Actually build severity timeline from states (we have it in the report)
-    # For now, use totalCves as single line
     timeline_chart = json.dumps({
         "labels": [f"{d['sha']} ({d['date']})" for d in diffs],
         "totals": [d.get("totalCves", 0) for d in diffs],
@@ -1060,7 +1040,7 @@ def main():
     # Collect unique deps
     unique_gavs = set()
     for entry in timeline:
-        for mod, mod_data in entry.get("reachability", {}).items():
+        for _mod, mod_data in entry.get("reachability", {}).items():
             for dep_key in mod_data.get("depsDetail", {}):
                 unique_gavs.add(dep_key)
 
