@@ -626,6 +626,7 @@ def build_summary(diffs, lifecycles):
 def generate_html(report):
     meta = report["metadata"]
     summary = report["summary"]
+    cve_timeline = report.get("cveTimeline", [])
     diffs = report["perCommit"]
     lifecycles = report["cveLifecycles"]
     per_dep = report["perDependency"]
@@ -667,9 +668,8 @@ def generate_html(report):
     </div>"""
 
     timeline_chart = json.dumps({
-        "labels": [f"{d['sha']} ({d['date']})" for d in diffs],
-        "totals": [d.get("totalCves", 0) for d in diffs],
-        "nets": [d.get("netChange", 0) for d in diffs],
+        "labels": [f"{d['sha']} ({d['date']})" for d in cve_timeline],
+        "totals": [d.get("totalCves", 0) for d in cve_timeline],
     })
 
     # Per-commit table
@@ -1079,6 +1079,12 @@ def main():
     # Summary
     summary = build_summary(diffs, lifecycles)
 
+    # Full CVE count at every commit (for the timeline chart)
+    cve_timeline = [
+        {"sha": s["sha"], "date": s["date"], "totalCves": len(s["cves"])}
+        for s in states
+    ]
+
     report = {
         "metadata": {
             "project": project,
@@ -1094,6 +1100,7 @@ def main():
             "dataComplete": len(failed_deps) == 0,
         },
         "summary": summary,
+        "cveTimeline": cve_timeline,
         "perCommit": diffs,
         "cveLifecycles": lifecycles,
         "perDependency": per_dep,
