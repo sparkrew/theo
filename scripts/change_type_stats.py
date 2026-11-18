@@ -7,7 +7,7 @@ For every commit with changes, each dependency event is classified as:
   - dep_added:        a new dependency appeared (no prior version existed)
   - dep_updated:      same groupId:artifactId, but version changed (bump or downgrade)
   - client_code_change: same groupId:artifactId:version, but reachable API count changed
-                        (client code started or stopped calling sensitive APIs on it)
+                        (client or intermediate dependency code changed how it calls sensitive APIs)
 
 Stats per project (computed per-dep, per-commit):
   - total, mean, median, max, min of each case across commits
@@ -267,7 +267,7 @@ def generate_html(report):
         "dep_removed": "Dep Removed",
         "dep_added": "Dep Added",
         "dep_updated": "Dep Updated (version)",
-        "client_code_change": "Client Code Change",
+        "client_code_change": "Client/Dep Code Change",
     }
     cases = list(case_labels.keys())
 
@@ -351,7 +351,7 @@ def generate_html(report):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Change Type Stats — {_esc(meta.get('project', ''))}</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
 :root {{
     --bg: #fafafa; --fg: #1a1a1a; --card: #fff; --border: #e0e0e0;
@@ -404,6 +404,10 @@ td:first-child {{ text-align: left; }}
     &middot; {totals.get('all', 0)} total dependency change events
     &middot; generated {meta.get('generated', '')[:16]}
 </p>
+<p style="font-size:0.8rem;color:var(--muted);margin-bottom:12px;font-style:italic">
+    Note: "Client/Dep Code Change" means the dependency version stayed the same but reachable API count changed.
+    For indirect (transitive) dependencies, this can be caused by changes in intermediate dependencies, not just the project's own code.
+</p>
 
 <div class="cards">
     {''.join(cards)}
@@ -451,7 +455,7 @@ td:first-child {{ text-align: left; }}
             <th style="color:var(--green)">Removed</th>
             <th style="color:var(--red)">Added</th>
             <th style="color:var(--blue)">Updated</th>
-            <th style="color:var(--orange)">Client</th>
+            <th style="color:var(--orange)">Client/Dep</th>
             <th>Total</th>
         </tr></thead>
         <tbody>{''.join(commit_rows)}</tbody>
@@ -468,7 +472,7 @@ td:first-child {{ text-align: left; }}
             <th style="color:var(--green)">Removed</th>
             <th style="color:var(--red)">Added</th>
             <th style="color:var(--blue)">Updated</th>
-            <th style="color:var(--orange)">Client</th>
+            <th style="color:var(--orange)">Client/Dep</th>
             <th>Total</th>
         </tr></thead>
         <tbody>{''.join(dep_rows)}</tbody>

@@ -98,11 +98,11 @@ THEO_CACHE = Path("/scratch/yogya/client-results/theo-cache")
 THEO_HISTORY = Path("/scratch/yogya/client-results/theo-history-snapshots")
 
 os.environ.pop("JAVA_TOOL_OPTIONS", None)
-os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx7g"
+os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx3g"
 
 THEO_PLUGIN = "io.github.sparkrew:theo-static-maven-plugin"
 MVN_BUILD = (
-    f"mvn clean install -DskipTests -Dcheckstyle.skip=true "
+    f"mvn clean install -DskipTests -Dcheckstyle.skip=true -Dmaven.site.skip=true"
     f"-Dspotless.check.skip=true -Denforcer.skip=true "
     f"-Dmaven.build.cache.enabled=false "
     f"-Dmaven.repo.local={M2_REPO}"
@@ -491,13 +491,13 @@ def _report_dirs(project_report_base, module, commit_sha):
 
 
 def copy_commit_reports(project_path, module, dest):
-    """Copy per-commit files (everything except history) into *dest*."""
+    """Copy all report files from theo-report into *dest*."""
     src = _module_report_src(project_path, module)
     if not src.exists():
         return
     dest.mkdir(parents=True, exist_ok=True)
     for f in src.iterdir():
-        if f.is_file() and f.name not in HISTORY_FILENAMES:
+        if f.is_file():
             shutil.copy2(f, dest / f.name)
 
 
@@ -710,7 +710,7 @@ def try_copy_from_old(commit, modules, project_report_base,
 
 
 # Per-project processing
-def process_project(entry):
+def process_project(entry, force=False):
     project_path = Path(entry["projectPath"])
     last_commit = entry.get("lastCommit")
     package_name = entry["packageName"]
@@ -754,9 +754,19 @@ def process_project(entry):
     for commit in commits_to_analyze:
         is_baseline = (commit == last_commit)
         if commit in done_shas:
-            continue
+            if not force:
+                continue
+            # Remove old entry so it can be re-analyzed
+            tracking["commits"] = [
+                c for c in tracking["commits"] if c["sha"] != commit]
+            done_shas.discard(commit)
+            log.info(f"  {commit[:8]}: forcing re-analysis")
         if commit in no_dep_shas and not is_baseline:
-            continue
+            if not force:
+                continue
+            tracking["noDepChangeCommits"] = [
+                s for s in tracking["noDepChangeCommits"] if s != commit]
+            no_dep_shas.discard(commit)
 
         if not is_baseline:
             # Strict check: only commits where <dependency> elements changed
@@ -973,9 +983,17 @@ def _safe_run(cmd, cwd):
 
 # Entry point
 def main():
+    import argparse
     setup_logging()
-    input_path = (Path(sys.argv[1]) if len(sys.argv) > 1
-                  else DEFAULT_INPUT)
+
+    parser = argparse.ArgumentParser(description="Run Theo history analysis")
+    parser.add_argument("input", nargs="?", default=str(DEFAULT_INPUT),
+                        help="Path to client_project_histories.json")
+    parser.add_argument("--force", action="store_true",
+                        help="Re-analyze commits already in tracking")
+    args = parser.parse_args()
+
+    input_path = Path(args.input)
     if not input_path.exists():
         log.error(f"Input file not found: {input_path}")
         sys.exit(1)
@@ -984,12 +1002,14 @@ def main():
         projects = json.load(f)
 
     log.info(f"Loaded {len(projects)} project(s) from {input_path}")
+    if args.force:
+        log.info("Force mode: will re-analyze previously completed commits")
 
     for i, entry in enumerate(projects):
         project_name = Path(entry["projectPath"]).name
         log.info(f"[{i+1}/{len(projects)}] {project_name}")
         try:
-            process_project(entry)
+            process_project(entry, force=args.force)
         except Exception as e:
             log.error(f"  Project failed entirely: {str(e)[:300]}")
 

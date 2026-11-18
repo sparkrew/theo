@@ -78,6 +78,98 @@ def cwe_to_categories(cwe_ids):
 
 
 # ---------------------------------------------------------------------------
+# Snapshot loading (per-dep per-category)
+# ---------------------------------------------------------------------------
+
+def load_snapshots_index(snapshots_dir):
+    """Build index: (groupId__artifactId, label) -> path.
+
+    Accepts either:
+      - The parent dir containing artifact subdirs (e.g. theo-history-snapshots/)
+      - A single artifact subdir directly (e.g. theo-history-snapshots/com.x__y/)
+    """
+    idx = {}
+    if not snapshots_dir or not Path(snapshots_dir).exists():
+        return idx
+
+    base = Path(snapshots_dir)
+
+    # Check if this dir itself contains snapshot .json files (single artifact dir)
+    direct_jsons = list(base.glob("*.json"))
+    if direct_jsons:
+        for f in direct_jsons:
+            parts = f.stem.split("__", 1)
+            if len(parts) == 2:
+                idx[(base.name, parts[1])] = f
+    else:
+        # Parent dir with artifact subdirs
+        for artifact_dir in base.iterdir():
+            if not artifact_dir.is_dir():
+                continue
+            for f in artifact_dir.glob("*.json"):
+                parts = f.stem.split("__", 1)
+                if len(parts) == 2:
+                    idx[(artifact_dir.name, parts[1])] = f
+    return idx
+
+
+def load_snapshot_api_detail(snap_path):
+    """Return {dep_key: {category: count}} from a snapshot file."""
+    try:
+        with open(snap_path) as f:
+            snap = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+    result = defaultdict(lambda: defaultdict(int))
+    for entry in snap.get("reachableApis", []):
+        dep_key = (f"{entry.get('depGroupId', '')}:"
+                   f"{entry.get('depArtifactId', '')}:"
+                   f"{entry.get('depVersion', '')}")
+        cat = entry.get("category", "OTHER")
+        result[dep_key][cat] += 1
+    return {k: dict(v) for k, v in result.items()}
+
+
+def build_snapshot_dep_cats(timeline, snapshots_dir):
+    """Build {sha: {dep_key: {cat: count}}} from snapshot files.
+
+    Uses the sha (8-char prefix from timeline) to match snapshot labels.
+    """
+    snap_idx = load_snapshots_index(snapshots_dir)
+    if not snap_idx:
+        print("  No snapshot index entries found — check snapshots path",
+              file=sys.stderr)
+        return {}
+
+    # Show sample keys for debugging
+    sample_keys = list(snap_idx.keys())[:3]
+    print(f"  Snapshot index: {len(snap_idx)} entries, "
+          f"sample keys: {sample_keys}")
+
+    timeline_shas = {entry.get("sha", "") for entry in timeline}
+    sample_shas = list(timeline_shas)[:3]
+    print(f"  Timeline SHAs (8-char): {sample_shas}")
+
+    result = {}
+    for entry in timeline:
+        sha = entry.get("sha", "")
+        dep_cats = {}
+        for key, snap_path in snap_idx.items():
+            label = key[1]
+            if label == sha or label.startswith(sha) or sha.startswith(label):
+                detail = load_snapshot_api_detail(snap_path)
+                dep_cats.update(detail)
+        if dep_cats:
+            result[sha] = dep_cats
+
+    if not result:
+        print("  WARNING: No snapshot labels matched any timeline SHAs. "
+              "Check that snapshot filenames contain the commit SHA prefix.",
+              file=sys.stderr)
+    return result
+
+
+# ---------------------------------------------------------------------------
 # OSV.dev client
 # ---------------------------------------------------------------------------
 
@@ -296,8 +388,9 @@ def extract_pr_number(message):
 # Core analysis
 # ---------------------------------------------------------------------------
 
-def build_commit_cve_states(timeline, osv_cache):
+def build_commit_cve_states(timeline, osv_cache, snap_dep_cats=None):
     """For each commit, build the full set of (cve_id, dep_gav) tuples present."""
+    snap_dep_cats = snap_dep_cats or {}
     states = []
     for entry in timeline:
         reach = entry.get("reachability", {})
@@ -316,12 +409,19 @@ def build_commit_cve_states(timeline, osv_cache):
                             "depApis": api_count,
                         }
 
+        sha = entry.get("sha", "")
+        cat_totals = {}
+        for _mod2, mod_data2 in reach.items():
+            for cat, cnt in mod_data2.get("reachableApisByCategory", {}).items():
+                cat_totals[cat] = cat_totals.get(cat, 0) + cnt
         states.append({
-            "sha": entry.get("sha", ""),
+            "sha": sha,
             "date": entry.get("date", ""),
             "message": entry.get("message", ""),
             "cves": cve_set,
             "depsDetail": dep_detail_all,
+            "depCats": snap_dep_cats.get(sha, {}),
+            "categoryTotals": cat_totals,
         })
 
     return states
@@ -354,6 +454,15 @@ def classify_resolution(dep_key, cur_deps, _prev_deps):
         else:
             return "depRemoved", None
     return "unknown", None
+
+
+def _get_category_totals(tl_entry):
+    """Sum reachableApisByCategory across all modules for a timeline entry."""
+    totals = {}
+    for _mod, mod_data in tl_entry.get("reachability", {}).items():
+        for cat, count in mod_data.get("reachableApisByCategory", {}).items():
+            totals[cat] = totals.get(cat, 0) + count
+    return totals
 
 
 def compute_cve_diffs(states, timeline=None):
@@ -425,11 +534,15 @@ def compute_cve_diffs(states, timeline=None):
             })
 
         if introduced or resolved:
+            cur_dep_cats = cur.get("depCats", {})
+            prev_dep_cats = prev.get("depCats", {})
+
             # Group by dependency: show CVE + sensitive API changes together
             dep_map = defaultdict(lambda: {
                 "cvesIntroduced": [], "cvesResolved": [],
                 "apisBefore": 0, "apisAfter": 0, "apisDelta": 0,
                 "versionBefore": "", "versionAfter": "",
+                "catBefore": {}, "catAfter": {},
             })
             for intr in introduced:
                 ga = dep_ga(intr["dep"])
@@ -438,8 +551,10 @@ def compute_cve_diffs(states, timeline=None):
                 dm["apisAfter"] = intr.get("depApis", 0)
                 dm["apisBefore"] = intr.get("depApisBefore", 0)
                 dm["versionAfter"] = dep_version(intr["dep"])
+                dm["catAfter"] = cur_dep_cats.get(intr["dep"], {})
                 if intr.get("previousDep"):
                     dm["versionBefore"] = dep_version(intr["previousDep"])
+                    dm["catBefore"] = prev_dep_cats.get(intr["previousDep"], {})
             for res in resolved:
                 ga = dep_ga(res["dep"])
                 dm = dep_map[ga]
@@ -447,8 +562,10 @@ def compute_cve_diffs(states, timeline=None):
                 dm["apisBefore"] = res.get("depApis", 0)
                 dm["apisAfter"] = res.get("depApisAfter", 0)
                 dm["versionBefore"] = dep_version(res["dep"])
+                dm["catBefore"] = prev_dep_cats.get(res["dep"], {})
                 if res.get("updatedTo"):
                     dm["versionAfter"] = dep_version(res["updatedTo"])
+                    dm["catAfter"] = cur_dep_cats.get(res["updatedTo"], {})
 
             for ga, dm in dep_map.items():
                 dm["apisDelta"] = dm["apisAfter"] - dm["apisBefore"]
@@ -460,12 +577,16 @@ def compute_cve_diffs(states, timeline=None):
                                                       + len(x[1]["cvesResolved"])))
             ]
 
-            # Get category deltas from timeline
+            # Get category totals and deltas from timeline
             tl_entry = sha_to_tl.get(cur["sha"], {})
+            prev_tl_entry = sha_to_tl.get(prev["sha"], {}) if prev else {}
+            cat_after = _get_category_totals(tl_entry)
+            cat_before = _get_category_totals(prev_tl_entry)
             cat_deltas = {}
-            for _mod, mod_delta in (tl_entry.get("deltas") or {}).items():
-                for cat, val in mod_delta.get("categoryDeltas", {}).items():
-                    cat_deltas[cat] = cat_deltas.get(cat, 0) + val
+            for cat in set(list(cat_after.keys()) + list(cat_before.keys())):
+                diff_val = cat_after.get(cat, 0) - cat_before.get(cat, 0)
+                if diff_val != 0:
+                    cat_deltas[cat] = diff_val
 
             diffs.append({
                 "sha": cur["sha"], "date": cur["date"], "message": cur["message"],
@@ -475,6 +596,8 @@ def compute_cve_diffs(states, timeline=None):
                 "netChange": len(introduced) - len(resolved),
                 "isBaseline": False,
                 "depDetails": dep_details,
+                "categoryBefore": cat_before,
+                "categoryAfter": cat_after,
                 "categoryDeltas": cat_deltas,
             })
 
@@ -763,6 +886,10 @@ def generate_html(report):
             f"<tr class='expand-row'><td colspan='7' class='expand-cell'>"
             f"{_commit_detail_html(diff)}</td></tr>")
 
+    CAT_LABELS = {"FILESYSTEM": "FileAccess", "NETWORK": "Network",
+                  "PROCESS": "Process", "OTHER": "Other"}
+    DISPLAY_CATS = ["FILESYSTEM", "NETWORK", "PROCESS"]
+
     # Per-dep CVE + sensitive API changes per commit
     dep_commit_sections = []
     for diff in diffs:
@@ -772,26 +899,23 @@ def generate_html(report):
         if not dep_details:
             continue
 
-        # Category deltas for this commit
-        cat_deltas = diff.get("categoryDeltas", {})
-        cat_parts = []
-        cat_labels = {"FILESYSTEM": "FileAccess", "NETWORK": "Network",
-                      "PROCESS": "Process", "OTHER": "Other"}
-        for cat in CATEGORIES:
-            val = cat_deltas.get(cat, 0)
-            if val != 0:
-                sign = f"+{val}" if val > 0 else str(val)
-                cls = "delta-up" if val > 0 else "delta-down"
-                cat_parts.append(f"<span class='{cls}'>{cat_labels.get(cat, cat)} {sign}</span>")
-        cat_summary = " &middot; ".join(cat_parts) if cat_parts else ""
+        # Check if any dep has per-category data
+        has_cat_data = any(dd.get("catBefore") or dd.get("catAfter")
+                          for dd in dep_details)
+
+        # Category column headers (only if snapshot data exists)
+        cat_headers = ""
+        cat_subheaders = ""
+        if has_cat_data:
+            for cat in DISPLAY_CATS:
+                label = CAT_LABELS[cat]
+                cat_headers += f"<th colspan='2' style='text-align:center'>{label}</th>"
+                cat_subheaders += "<th>Before</th><th>Δ</th>"
 
         dep_rows = []
         for dd in dep_details:
             n_intro = len(dd.get("cvesIntroduced", []))
             n_res = len(dd.get("cvesResolved", []))
-            api_delta = dd.get("apisDelta", 0)
-            api_cls = "delta-up" if api_delta > 0 else "delta-down" if api_delta < 0 else ""
-            api_sign = f"+{api_delta}" if api_delta > 0 else str(api_delta)
 
             ver_str = ""
             if dd.get("versionBefore") and dd.get("versionAfter"):
@@ -808,35 +932,210 @@ def generate_html(report):
             for cr in dd.get("cvesResolved", []):
                 cve_badges.append(f"<span class='badge badge-resolved'>-{_esc(cr['cveId'])}</span>")
 
+            # Total APIs (always available from depsDetail)
+            api_before = dd.get("apisBefore", 0)
+            api_after = dd.get("apisAfter", 0)
+            api_delta = dd.get("apisDelta", 0)
+            api_cls = "delta-up" if api_delta > 0 else "delta-down" if api_delta < 0 else ""
+            api_sign = f"+{api_delta}" if api_delta > 0 else str(api_delta) if api_delta != 0 else ""
+
+            # Per-dep per-category cells (from snapshots)
+            cat_cells = ""
+            if has_cat_data:
+                cb = dd.get("catBefore", {})
+                ca = dd.get("catAfter", {})
+                for cat in DISPLAY_CATS:
+                    bv = cb.get(cat, 0)
+                    av = ca.get(cat, 0)
+                    dv = av - bv
+                    d_cls = "delta-up" if dv > 0 else "delta-down" if dv < 0 else ""
+                    d_sign = f"+{dv}" if dv > 0 else str(dv) if dv != 0 else ""
+                    bv_str = str(bv) if bv else ""
+                    cat_cells += f"<td>{bv_str}</td><td class='{d_cls}'>{d_sign}</td>"
+
             dep_rows.append(
                 f"<tr>"
                 f"<td class='mono'>{_esc(dd['dep'])}</td>"
                 f"<td style='font-size:0.78rem'>{ver_str}</td>"
                 f"<td style='color:var(--red)'>{'+' + str(n_intro) if n_intro else ''}</td>"
                 f"<td style='color:var(--green)'>{'-' + str(n_res) if n_res else ''}</td>"
-                f"<td>{dd.get('apisBefore', 0)}</td>"
-                f"<td>{dd.get('apisAfter', 0)}</td>"
+                f"<td>{api_before}</td><td>{api_after}</td>"
                 f"<td class='{api_cls}'>{api_sign}</td>"
+                f"{cat_cells}"
                 f"<td style='font-size:0.75rem'>{' '.join(cve_badges)}</td>"
                 f"</tr>")
 
         dep_commit_sections.append(f"""
-        <div style="margin-bottom:20px">
-            <h3 style="font-size:0.9rem;margin-bottom:4px">
+        <div style="margin-bottom:24px">
+            <h3 style="font-size:0.9rem;margin-bottom:8px">
                 <span class="mono">{_esc(diff['sha'])}</span>
                 <span style="color:var(--muted);font-weight:400"> — {_esc(diff['date'])} — {_esc(diff['message'][:80])}</span>
             </h3>
-            {'<p style="font-size:0.82rem;margin-bottom:8px">Sensitive API changes: ' + cat_summary + '</p>' if cat_summary else ''}
             <table class="dep-detail-table">
-                <thead><tr>
-                    <th>Dependency</th><th>Version</th>
-                    <th>CVEs +</th><th>CVEs -</th>
-                    <th>APIs Before</th><th>APIs After</th><th>APIs Δ</th>
-                    <th>CVE Details</th>
-                </tr></thead>
+                <thead>
+                    <tr>
+                        <th rowspan="2">Dependency</th><th rowspan="2">Version</th>
+                        <th rowspan="2">CVEs +</th><th rowspan="2">CVEs -</th>
+                        <th colspan="3" style="text-align:center">Total APIs</th>
+                        {cat_headers}
+                        <th rowspan="2">CVE Details</th>
+                    </tr>
+                    <tr><th>Before</th><th>After</th><th>Δ</th>{cat_subheaders}</tr>
+                </thead>
                 <tbody>{''.join(dep_rows)}</tbody>
             </table>
         </div>""")
+
+    # --- Per-category chart data: CVE bars (same) + category API delta line ---
+    CHART_CATS = ["FILESYSTEM", "NETWORK", "PROCESS"]
+
+    diff_by_sha = {}
+    for diff in diffs:
+        diff_by_sha[diff["sha"]] = diff
+
+    all_commits = report.get("_allStates", [])
+    chart_labels = []
+    cve_introduced_data = []
+    cve_resolved_data = []
+    cat_api_deltas = {c: [] for c in CHART_CATS}
+
+    for i, state in enumerate(all_commits):
+        sha = state["sha"]
+        chart_labels.append(sha)
+        diff = diff_by_sha.get(sha)
+        if diff and not diff.get("isBaseline"):
+            cve_introduced_data.append(len(diff.get("introduced", [])))
+            cve_resolved_data.append(-len(diff.get("resolved", [])))
+        else:
+            cve_introduced_data.append(0)
+            cve_resolved_data.append(0)
+        if i == 0:
+            for c in CHART_CATS:
+                cat_api_deltas[c].append(0)
+        else:
+            prev_cats = all_commits[i - 1].get("categoryTotals", {})
+            cur_cats = state.get("categoryTotals", {})
+            for c in CHART_CATS:
+                cat_api_deltas[c].append(
+                    cur_cats.get(c, 0) - prev_cats.get(c, 0))
+
+    chart_labels_json = json.dumps(chart_labels)
+    cve_intro_json = json.dumps(cve_introduced_data)
+    cve_res_json = json.dumps(cve_resolved_data)
+    cat_api_deltas_json = {c: json.dumps(v) for c, v in cat_api_deltas.items()}
+
+    # --- Heatmap data: (commit, dep) -> category ---
+    # Build from states (all commits) + diffs (CVE info)
+    # Track per-dep API changes between consecutive commits
+    all_heatmap_deps = set()
+    heatmap_cells = {}  # (sha, dep_ga) -> "both"|"cve_only"|"api_only"
+    heatmap_commit_list = []  # [{sha, date, message}] for commits with activity
+
+    # Index CVE changes by (sha, dep_ga) -> {"intro": N, "resolved": N}
+    cve_change_info = {}
+    for diff in diffs:
+        if diff.get("isBaseline"):
+            continue
+        for dd in diff.get("depDetails", []):
+            n_intro = len(dd.get("cvesIntroduced", []))
+            n_res = len(dd.get("cvesResolved", []))
+            if n_intro or n_res:
+                cve_change_info[(diff["sha"], dd["dep"])] = {
+                    "intro": n_intro, "resolved": n_res}
+
+    for i, state in enumerate(all_commits):
+        if i == 0:
+            continue
+        prev = all_commits[i - 1]
+        sha = state["sha"]
+        cur_by_ga = {}
+        for dk, cnt in state["depsDetail"].items():
+            ga = dep_ga(dk)
+            cur_by_ga[ga] = cur_by_ga.get(ga, 0) + cnt
+        prev_by_ga = {}
+        for dk, cnt in prev["depsDetail"].items():
+            ga = dep_ga(dk)
+            prev_by_ga[ga] = prev_by_ga.get(ga, 0) + cnt
+
+        has_activity = False
+        all_gas = set(cur_by_ga.keys()) | set(prev_by_ga.keys())
+        for ga in all_gas:
+            api_delta = cur_by_ga.get(ga, 0) - prev_by_ga.get(ga, 0)
+            cve_info = cve_change_info.get((sha, ga))
+            has_cve = cve_info is not None
+            has_api = api_delta != 0
+            if has_cve or has_api:
+                all_heatmap_deps.add(ga)
+                has_activity = True
+                if has_cve and has_api:
+                    cat = "both"
+                elif has_cve:
+                    cat = "cve_only"
+                else:
+                    cat = "api_only"
+                heatmap_cells[(sha, ga)] = {
+                    "cat": cat,
+                    "cve_intro": cve_info["intro"] if cve_info else 0,
+                    "cve_resolved": cve_info["resolved"] if cve_info else 0,
+                    "api_delta": api_delta,
+                }
+        if has_activity:
+            heatmap_commit_list.append({
+                "sha": sha, "date": state["date"],
+                "message": state.get("message", ""),
+            })
+
+    sorted_heatmap_deps = sorted(all_heatmap_deps)
+    heatmap_html = ""
+    if heatmap_commit_list and sorted_heatmap_deps:
+        hm_header = "<th>Dependency</th>"
+        for hc in heatmap_commit_list:
+            hm_header += (f"<th class='hm-col' title='{_esc(hc['date'])} "
+                          f"{_esc(hc['message'][:60])}'>{_esc(hc['sha'])}</th>")
+        hm_rows = []
+        for dep_ga_key in sorted_heatmap_deps:
+            cells = f"<td class='mono' style='white-space:nowrap'>{_esc(dep_ga_key)}</td>"
+            for hc in heatmap_commit_list:
+                cell = heatmap_cells.get((hc["sha"], dep_ga_key))
+                if not cell:
+                    cls = "hm-none"
+                    label = ""
+                else:
+                    cls = {"both": "hm-both", "cve_only": "hm-cve",
+                           "api_only": "hm-api"}[cell["cat"]]
+                    parts = []
+                    if cell["cve_intro"]:
+                        parts.append(f"CVE↑{cell['cve_intro']}")
+                    if cell["cve_resolved"]:
+                        parts.append(f"CVE↓{cell['cve_resolved']}")
+                    ad = cell["api_delta"]
+                    if ad > 0:
+                        parts.append(f"API↑{ad}")
+                    elif ad < 0:
+                        parts.append(f"API↓{abs(ad)}")
+                    label = " ".join(parts)
+                cells += f"<td class='hm-cell {cls}'>{label}</td>"
+            hm_rows.append(f"<tr>{cells}</tr>")
+
+        heatmap_html = f"""
+    <div class="section">
+        <h2>CVE &amp; Sensitive API Change Heatmap</h2>
+        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:8px">
+            Each cell shows whether a dependency had a CVE change, an API reachability change, or both at each commit.
+        </p>
+        <div style="margin-bottom:8px;font-size:0.8rem">
+            <span class="hm-legend hm-both">CVE + API change</span>
+            <span class="hm-legend hm-cve">CVE change only</span>
+            <span class="hm-legend hm-api">API change only</span>
+            <span style="color:var(--muted);margin-left:12px">↑ = introduced/increased &nbsp; ↓ = resolved/decreased</span>
+        </div>
+        <div style="overflow-x:auto">
+        <table class="heatmap-table">
+            <thead><tr>{hm_header}</tr></thead>
+            <tbody>{''.join(hm_rows)}</tbody>
+        </table>
+        </div>
+    </div>"""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -844,6 +1143,7 @@ def generate_html(report):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CVE Tracking — {_esc(meta.get('project', ''))}</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
 :root {{
     --bg: #fafafa; --fg: #1a1a1a; --card: #fff; --border: #e0e0e0;
@@ -917,6 +1217,16 @@ a:hover {{ text-decoration: underline; }}
 .detail-table td {{ padding: 4px 8px; }}
 .dep-detail-table {{ font-size: 0.82rem; }}
 .dep-detail-table td {{ padding: 5px 8px; }}
+.chart-container {{ height: 350px; margin: 16px 0; }}
+.heatmap-table {{ font-size: 0.75rem; }}
+.heatmap-table th, .heatmap-table td {{ padding: 4px 6px; text-align: center; }}
+.hm-col {{ writing-mode: vertical-rl; text-orientation: mixed; font-size: 0.7rem; max-width: 32px; }}
+.hm-cell {{ min-width: 28px; font-size: 0.65rem; font-weight: 600; }}
+.hm-both {{ background: var(--purple); color: #fff; }}
+.hm-cve {{ background: var(--red); color: #fff; }}
+.hm-api {{ background: var(--orange); color: #fff; }}
+.hm-none {{ background: transparent; }}
+.hm-legend {{ display: inline-block; padding: 2px 10px; border-radius: 4px; margin-right: 8px; font-weight: 600; color: #fff; }}
 </style>
 </head>
 <body>
@@ -932,6 +1242,28 @@ a:hover {{ text-decoration: underline; }}
 {'<div style="background:var(--badge-rm,#ffebee);color:var(--badge-rm-fg,#c62828);border:1px solid;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:0.9rem"><strong>Warning:</strong> CVE data is INCOMPLETE — ' + str(meta.get("failedDepsCount", 0)) + ' dependency version(s) could not be queried from OSV.dev after ' + str(MAX_RETRIES) + ' retries. Check metadata.failedDeps in the JSON for the list.</div>' if meta.get("failedDepsCount", 0) > 0 else ''}
 
 {cards}
+
+<div class="section">
+    <h2>CVE &amp; Sensitive API Changes Over Time</h2>
+    <p style="font-size:0.82rem;color:var(--muted);margin-bottom:8px">
+        Bars show CVE introductions (red, up) and resolutions (green, down) — same across all three charts.
+        Each line shows the sensitive API reachability delta for that category.
+    </p>
+    <h3 style="margin-top:16px">FileAccess</h3>
+    <div class="chart-container">
+        <canvas id="chartFileAccess"></canvas>
+    </div>
+    <h3>Network</h3>
+    <div class="chart-container">
+        <canvas id="chartNetwork"></canvas>
+    </div>
+    <h3>Process</h3>
+    <div class="chart-container">
+        <canvas id="chartProcess"></canvas>
+    </div>
+</div>
+
+{heatmap_html}
 
 <div class="section">
     <h2>CVE Changes Per Commit</h2>
@@ -958,6 +1290,101 @@ function toggleCommit(row) {{
         next.classList.toggle('open');
     }}
 }}
+
+// Per-category dual-axis charts
+(function() {{
+    const fg = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim() || '#1a1a1a';
+    const border = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#e0e0e0';
+    Chart.defaults.color = fg;
+    Chart.defaults.borderColor = border;
+
+    const labels = {chart_labels_json};
+    const cveIntro = {cve_intro_json};
+    const cveRes = {cve_res_json};
+    const catData = {{
+        'FileAccess': {cat_api_deltas_json["FILESYSTEM"]},
+        'Network': {cat_api_deltas_json["NETWORK"]},
+        'Process': {cat_api_deltas_json["PROCESS"]},
+    }};
+    const lineColors = {{
+        'FileAccess': 'rgba(41, 128, 185, 1)',
+        'Network': 'rgba(108, 74, 182, 1)',
+        'Process': 'rgba(224, 122, 58, 1)',
+    }};
+    const chartIds = {{
+        'FileAccess': 'chartFileAccess',
+        'Network': 'chartNetwork',
+        'Process': 'chartProcess',
+    }};
+
+    for (const [catName, apiDeltas] of Object.entries(catData)) {{
+        const ctx = document.getElementById(chartIds[catName]);
+        if (!ctx) continue;
+        new Chart(ctx, {{
+            type: 'bar',
+            data: {{
+                labels: labels,
+                datasets: [
+                    {{
+                        label: 'CVEs Introduced',
+                        data: cveIntro,
+                        backgroundColor: 'rgba(192, 57, 43, 0.7)',
+                        borderColor: 'rgba(192, 57, 43, 1)',
+                        borderWidth: 1,
+                        yAxisID: 'yCve',
+                        order: 2,
+                    }},
+                    {{
+                        label: 'CVEs Resolved',
+                        data: cveRes,
+                        backgroundColor: 'rgba(45, 106, 79, 0.7)',
+                        borderColor: 'rgba(45, 106, 79, 1)',
+                        borderWidth: 1,
+                        yAxisID: 'yCve',
+                        order: 2,
+                    }},
+                    {{
+                        label: catName + ' API Δ',
+                        data: apiDeltas,
+                        type: 'line',
+                        borderColor: lineColors[catName],
+                        backgroundColor: lineColors[catName].replace('1)', '0.1)'),
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        fill: false,
+                        yAxisID: 'yApi',
+                        order: 1,
+                    }}
+                ]
+            }},
+            options: {{
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {{ mode: 'index', intersect: false }},
+                plugins: {{
+                    legend: {{ position: 'bottom' }},
+                }},
+                scales: {{
+                    x: {{
+                        ticks: {{ maxRotation: 45, autoSkip: true, maxTicksLimit: 30, font: {{ size: 10 }} }}
+                    }},
+                    yCve: {{
+                        type: 'linear',
+                        position: 'left',
+                        title: {{ display: true, text: 'CVE Changes' }},
+                        grid: {{ drawOnChartArea: true }},
+                    }},
+                    yApi: {{
+                        type: 'linear',
+                        position: 'right',
+                        title: {{ display: true, text: catName + ' API Δ' }},
+                        grid: {{ drawOnChartArea: false }},
+                    }}
+                }}
+            }}
+        }});
+    }}
+}})();
 </script>
 </body>
 </html>"""
@@ -1024,6 +1451,7 @@ def main():
     parser.add_argument("timeline", help="Path to timeline_data.json")
     parser.add_argument("--repo-url", help="GitHub repo URL")
     parser.add_argument("--project", help="Project name")
+    parser.add_argument("--snapshots", help="Path to snapshots directory (for per-dep per-category)")
     parser.add_argument("--output", help="Output directory (default: same as timeline)")
     parser.add_argument("--cache", help="OSV cache file path (default: <output>/osv_cache.json)")
     parser.add_argument("--refresh-cache", action="store_true",
@@ -1069,8 +1497,15 @@ def main():
         print(f"  WARNING: {len(failed_deps)} deps have INCOMPLETE CVE data "
               f"(OSV query failed after {MAX_RETRIES} retries)")
 
+    # Load per-dep per-category from snapshots
+    snap_dep_cats = {}
+    if args.snapshots:
+        print(f"  Loading snapshots from {args.snapshots}...")
+        snap_dep_cats = build_snapshot_dep_cats(timeline, args.snapshots)
+        print(f"  Loaded per-dep category data for {len(snap_dep_cats)} commits")
+
     # Build per-commit CVE state
-    states = build_commit_cve_states(timeline, osv_cache)
+    states = build_commit_cve_states(timeline, osv_cache, snap_dep_cats)
 
     # Compute diffs
     diffs = compute_cve_diffs(states, timeline)
@@ -1101,16 +1536,18 @@ def main():
         },
         "summary": summary,
         "perCommit": diffs,
+        "_allStates": states,
     }
-
-    json_path = out_dir / "cve_tracking.json"
-    with open(json_path, "w") as f:
-        json.dump(report, f, indent=2)
-    print(f"JSON: {json_path}")
 
     html_path = out_dir / "cve_tracking.html"
     html_path.write_text(generate_html(report), encoding="utf-8")
     print(f"HTML: {html_path}")
+
+    del report["_allStates"]
+    json_path = out_dir / "cve_tracking.json"
+    with open(json_path, "w") as f:
+        json.dump(report, f, indent=2)
+    print(f"JSON: {json_path}")
 
 
 if __name__ == "__main__":

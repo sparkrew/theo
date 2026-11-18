@@ -48,6 +48,7 @@ Usage examples:
 import argparse
 import json
 import re
+import subprocess
 import sys
 from collections import defaultdict
 from datetime import datetime
@@ -248,7 +249,7 @@ def classify_dep_change(dep_entry, change_type, prev_dep_cats, cur_dep_cats):
             diff = cur_cats.get(cat, 0) - prev_cats.get(cat, 0)
             if diff != 0:
                 cat_contrib[cat] = diff
-    else:  # changed (client code change — same g:a:v, different count)
+    else:  # changed (client/dep code change — same g:a:v, different reachability)
         record["apisInPrevious"] = dep_entry.get("from", 0)
         record["apisInCurrent"] = dep_entry.get("to", 0)
         record["apisDelta"] = dep_entry.get("to", 0) - dep_entry.get("from", 0)
@@ -266,6 +267,75 @@ def classify_dep_change(dep_entry, change_type, prev_dep_cats, cur_dep_cats):
         record["categoryContribution"] = {}
 
     return record
+
+
+def get_intermediate_commits(repo_path, prev_sha, cur_sha, repo_url=None):
+    """Get all commits between prev_sha (exclusive) and cur_sha (inclusive).
+
+    Returns list of commit dicts sorted newest-first.
+    """
+    if not repo_path or not prev_sha or not cur_sha:
+        return []
+
+    try:
+        cmd = (f"git log --first-parent --format='%H%n%s%n%ai%n%b%n---END---' "
+               f"{prev_sha}..{cur_sha}")
+        result = subprocess.run(
+            cmd, shell=True, cwd=str(repo_path),
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode != 0:
+            return []
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+
+    commits = []
+    raw = result.stdout.strip()
+    if not raw:
+        return []
+
+    entries = raw.split("---END---")
+    for entry_text in entries:
+        lines = entry_text.strip().splitlines()
+        if len(lines) < 3:
+            continue
+        sha = lines[0].strip()
+        message = lines[1].strip()
+        date = lines[2].strip()[:10]
+
+        if sha == cur_sha:
+            continue
+
+        pr_number = extract_pr_number(message)
+        commit_url = f"{repo_url}/commit/{sha[:8]}" if repo_url else None
+        pr_url = f"{repo_url}/pull/{pr_number}" if repo_url and pr_number else None
+
+        # Check if this commit touches pom.xml
+        touches_pom = False
+        try:
+            pom_cmd = (f"git diff --name-only {sha}^..{sha} "
+                       f"-- ':(glob)**/pom.xml' 'pom.xml'")
+            pom_result = subprocess.run(
+                pom_cmd, shell=True, cwd=str(repo_path),
+                capture_output=True, text=True, timeout=30,
+            )
+            if pom_result.returncode == 0 and pom_result.stdout.strip():
+                touches_pom = True
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+
+        commits.append({
+            "sha": sha[:8],
+            "fullSha": sha,
+            "message": message[:200],
+            "date": date,
+            "prNumber": pr_number,
+            "commitUrl": commit_url,
+            "prUrl": pr_url,
+            "touchesPom": touches_pom,
+        })
+
+    return commits
 
 
 def analyze_single_change(entry, prev_entry, commit_dep_cats, repo_url):
@@ -482,7 +552,7 @@ def generate_html(report):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Big Changes Analysis — {_esc(meta.get('project', 'Unknown'))}</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <style>
 :root {{
     --bg: #fafafa; --fg: #1a1a1a; --card: #fff; --border: #e0e0e0;
@@ -567,6 +637,8 @@ th {{ background: var(--bg); font-weight: 600; position: sticky; top: 0; }}
 .badge-client {{ background: var(--badge-client); color: var(--badge-client-fg); }}
 .dep-table {{ margin-top: 12px; }}
 .dep-table td {{ font-size: 0.82rem; }}
+.pom-row {{ background: var(--badge-bump); }}
+.hidden {{ display: none; }}
 .cat-bar {{ display: flex; gap: 2px; height: 20px; border-radius: 3px; overflow: hidden; min-width: 120px; }}
 .cat-bar span {{ display: inline-block; height: 100%; min-width: 2px; }}
 .cat-fs {{ background: var(--orange); }}
@@ -592,6 +664,10 @@ a:hover {{ text-decoration: underline; }}
     &middot; {meta.get('totalCommitsAnalyzed', '?')} commits analyzed
     &middot; {meta.get('dateRange', {}).get('from', '?')} to {meta.get('dateRange', {}).get('to', '?')}
     &middot; generated {meta.get('generated', '')[:16]}
+</p>
+<p style="font-size:0.8rem;color:var(--muted);margin-bottom:12px;font-style:italic">
+    Note: "client/dep code" changes mean the dependency version stayed the same but reachable API count changed.
+    For transitive dependencies, this can be caused by changes in intermediate dependencies, not just the project's own code.
 </p>
 
 {cards_html}
@@ -748,11 +824,11 @@ def _badges_html(classification):
     if n_upd:
         badges.append(f'<span class="badge badge-bump">{n_upd} updated</span>')
     if n_chg:
-        badges.append(f'<span class="badge badge-changed">{n_chg} client code</span>')
+        badges.append(f'<span class="badge badge-changed">{n_chg} client/dep code</span>')
     if n_repl:
         badges.append(f'<span class="badge badge-replacement">{n_repl} replacement{"s" if n_repl > 1 else ""}?</span>')
     if classification.get("clientCodeChangeOnly"):
-        badges.append('<span class="badge badge-client">client code only</span>')
+        badges.append('<span class="badge badge-client">client/dep code only</span>')
     return " ".join(badges)
 
 
@@ -830,7 +906,7 @@ def _build_change_details(changes):
             badge_cls = chg_badge.get(dd["changeType"], "")
             type_label = dd["changeType"]
             if type_label == "changed":
-                type_label = "client code"
+                type_label = "client/dep code"
             api_cls = _delta_class(dd["apisDelta"])
             cat_parts = []
             for cat, val in dd.get("categoryContribution", {}).items():
@@ -908,6 +984,12 @@ def _build_change_details(changes):
                 (+{s['depsAdded']} / -{s['depsRemoved']} / ↑{s.get('depsUpdated', 0)} updated / ~{s['depsChanged']} client)
                 &middot; Modules: {', '.join(c.get('changedModules', []))}
             </p>
+            <p style="margin:4px 0;font-size:0.82rem;color:var(--muted)">
+                Compared to: <span class="mono">{_esc(c.get('comparedTo', {}).get('sha', '?'))}</span>
+                ({_esc(c.get('comparedTo', {}).get('date', '?'))})
+                — {_esc(c.get('comparedTo', {}).get('message', '') or '(baseline)')}
+                &middot; Timeline position: #{c.get('timelineIndex', '?')}
+            </p>
 
             <div class="chart-container">
                 <canvas class="cat-chart" data-chart='{_esc(chart_data)}'></canvas>
@@ -923,9 +1005,54 @@ def _build_change_details(changes):
 
             {bump_html}
             {repl_html}
+            {_intermediate_commits_html(c)}
         </div>""")
 
     return "\n".join(sections)
+
+
+def _intermediate_commits_html(change):
+    """Build collapsible intermediate commits section."""
+    commits = change.get("intermediateCommits", [])
+    if not commits:
+        return ""
+
+    pom_count = sum(1 for c in commits if c.get("touchesPom"))
+    uid = f"intermediate-{change.get('rank', 0)}"
+
+    rows = []
+    for c in commits:
+        sha_display = c["sha"]
+        if c.get("commitUrl"):
+            sha_display = f'<a href="{_esc(c["commitUrl"])}" target="_blank">{_esc(c["sha"])}</a>'
+        pr_display = ""
+        if c.get("prUrl"):
+            pr_display = f' <a href="{_esc(c["prUrl"])}" target="_blank">PR #{c["prNumber"]}</a>'
+        pom_badge = ' <span class="badge badge-bump">pom</span>' if c.get("touchesPom") else ""
+        rows.append(
+            f"<tr class=\"{'pom-row' if c.get('touchesPom') else ''}\">"
+            f"<td class='mono'>{sha_display}{pr_display}</td>"
+            f"<td>{_esc(c['date'])}</td>"
+            f"<td>{_esc(c['message'][:100])}{pom_badge}</td></tr>")
+
+    return f"""
+    <h3 style="margin-top:20px">
+        Intermediate Commits ({len(commits)} commits, {pom_count} touch pom.xml)
+        <span style="font-size:0.8rem;font-weight:400;color:var(--muted);cursor:pointer"
+              onclick="document.getElementById('{uid}').classList.toggle('hidden')">
+            [toggle]
+        </span>
+    </h3>
+    <p style="font-size:0.82rem;color:var(--muted);margin-bottom:8px">
+        Commits between previous analyzed commit
+        ({_esc(change.get('previousAnalyzedSha', '?'))}) and this one
+    </p>
+    <div id="{uid}" style="overflow-x:auto">
+    <table class="dep-table">
+        <thead><tr><th>Commit</th><th>Date</th><th>Message</th></tr></thead>
+        <tbody>{''.join(rows)}</tbody>
+    </table>
+    </div>"""
 
 
 def _build_volatile_table(summary):
@@ -955,6 +1082,7 @@ def main():
     parser.add_argument("--results", help="Path to analysis_results.json (for richer data)")
     parser.add_argument("--snapshots", help="Path to snapshots directory (for per-dep category)")
     parser.add_argument("--repo-url", help="GitHub repo URL (e.g. https://github.com/org/repo)")
+    parser.add_argument("--repo-path", help="Path to local git repo (for intermediate commits)")
     parser.add_argument("--project", help="Project name (derived from path if omitted)")
     parser.add_argument("--top", type=int, default=10, help="Number of top changes (default: 10)")
     parser.add_argument("--offset", type=int, default=0, help="Skip first N changes (for pagination)")
@@ -998,12 +1126,37 @@ def main():
     sha_to_idx = {e["sha"]: i for i, e in enumerate(timeline)}
 
     # Analyze each
+    repo_path = Path(args.repo_path) if args.repo_path else None
     big_changes = []
     for rank_pos, (_, entry) in enumerate(page, start=args.offset + 1):
         idx = sha_to_idx.get(entry["sha"])
         prev_entry = timeline[idx - 1] if idx and idx > 0 else None
         change = analyze_single_change(entry, prev_entry, commit_dep_cats, repo_url)
         change["rank"] = rank_pos
+        change["comparedTo"] = {
+            "sha": prev_entry["sha"] if prev_entry else None,
+            "date": prev_entry.get("date", "") if prev_entry else None,
+            "message": prev_entry.get("message", "")[:120] if prev_entry else None,
+            "timelineIndex": idx - 1 if idx and idx > 0 else None,
+        }
+        change["timelineIndex"] = idx
+
+        # Intermediate commits between previous analyzed and this one
+        if repo_path and prev_entry:
+            intermediate = get_intermediate_commits(
+                repo_path, prev_entry["sha"], entry["sha"], repo_url)
+            change["previousAnalyzedSha"] = prev_entry["sha"]
+            change["intermediateCommitCount"] = len(intermediate)
+            change["intermediateCommits"] = intermediate
+            pom_count = sum(1 for c in intermediate if c.get("touchesPom"))
+            if intermediate:
+                print(f"  Rank {rank_pos}: {len(intermediate)} intermediate "
+                      f"commits ({pom_count} touch pom.xml)")
+        else:
+            change["previousAnalyzedSha"] = None
+            change["intermediateCommitCount"] = 0
+            change["intermediateCommits"] = []
+
         big_changes.append(change)
 
     # Project summary
