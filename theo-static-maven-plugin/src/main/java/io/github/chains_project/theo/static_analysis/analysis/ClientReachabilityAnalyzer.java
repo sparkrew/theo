@@ -193,7 +193,7 @@ public class ClientReachabilityAnalyzer {
                                         new PathMethod(depCaller, depCallerGa)
                                 );
 
-                                String[] catInfo = categoryLookup.get(sensitiveApiName);
+                                String[] catInfo = categoryLookup.get(stripParams(sensitiveApiName));
                                 String category = catInfo != null ? catInfo[0] : null;
                                 String subcategory = catInfo != null ? catInfo[1] : null;
 
@@ -342,11 +342,13 @@ public class ClientReachabilityAnalyzer {
 
     /**
      * Checks whether a method signature matches one of the known sensitive API identifiers.
+     * Matching is by className.methodName (without params) since the sensitive API catalog
+     * does not distinguish overloads.
      */
     private boolean isSensitiveAPI(MethodSignature sig, Set<String> identifiers) {
-        String formatted = formatName(sig.getDeclClassType().getFullyQualifiedName())
+        String nameOnly = formatName(sig.getDeclClassType().getFullyQualifiedName())
                 + "." + formatName(sig.getName());
-        return identifiers.contains(formatted);
+        return identifiers.contains(nameOnly);
     }
 
     /** True if the method belongs to the client project (its package starts with a client prefix). */
@@ -365,13 +367,16 @@ public class ClientReachabilityAnalyzer {
     }
 
     /**
-     * Produces a human-readable "className.methodName" string for a method signature,
-     * with inner-class separators cleaned up.
+     * Produces a "className.methodName(paramType1,paramType2)" string for a method
+     * signature, with inner-class separators cleaned up and full parameter types.
      */
     private String formatMethodSignature(MethodSignature method) {
         String className = formatName(method.getDeclClassType().getFullyQualifiedName());
         String methodName = formatName(method.getName());
-        return className + "." + methodName;
+        String params = method.getParameterTypes().stream()
+                .map(t -> formatName(t.toString()))
+                .collect(Collectors.joining(","));
+        return className + "." + methodName + "(" + params + ")";
     }
 
     /**
@@ -387,15 +392,31 @@ public class ClientReachabilityAnalyzer {
     }
 
     /**
-     * Extracts the package name from a fully qualified "className.methodName" string,
-     * returning null if the package belongs to an ignored prefix.
+     * Strips the parameter list from a formatted method signature, returning
+     * just "className.methodName" for use in lookups that don't distinguish overloads.
+     */
+    private String stripParams(String formattedSignature) {
+        int parenIdx = formattedSignature.indexOf('(');
+        return parenIdx >= 0 ? formattedSignature.substring(0, parenIdx) : formattedSignature;
+    }
+
+    /**
+     * Extracts the package name from a fully qualified method signature string
+     * (with or without parameter list), returning null if the package belongs
+     * to an ignored prefix.
      */
     private String extractPackageName(String methodSignature, Set<String> ignoredPrefixes) {
-        int methodDot = methodSignature.lastIndexOf('.');
+        // Strip parameter list if present: "pkg.Class.method(params)" → "pkg.Class.method"
+        String sig = methodSignature;
+        int parenIdx = sig.indexOf('(');
+        if (parenIdx >= 0) {
+            sig = sig.substring(0, parenIdx);
+        }
+        int methodDot = sig.lastIndexOf('.');
         if (methodDot == -1) {
             return null;
         }
-        String className = methodSignature.substring(0, methodDot);
+        String className = sig.substring(0, methodDot);
         int classDot = className.lastIndexOf('.');
         if (classDot == -1) {
             return null;
