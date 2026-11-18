@@ -103,7 +103,8 @@ class HtmlReportGeneratorTest {
             "com.example.Util.readFile",
             "DIRECT",
             List.of(),
-            List.of("com.example.Util.readFile", "java.io.FileInputStream.<init>"),
+            List.of(new PathMethod("com.example.Util.readFile", null),
+                    new PathMethod("java.io.FileInputStream.<init>", null)),
             "filesystem",
             "read"
         );
@@ -113,7 +114,8 @@ class HtmlReportGeneratorTest {
             "com.other.Helper.runCommand",
             "DIRECT",
             List.of(),
-            List.of("com.other.Helper.runCommand", "java.lang.Runtime.exec"),
+            List.of(new PathMethod("com.other.Helper.runCommand", null),
+                    new PathMethod("java.lang.Runtime.exec", null)),
             "process",
             "execute"
         );

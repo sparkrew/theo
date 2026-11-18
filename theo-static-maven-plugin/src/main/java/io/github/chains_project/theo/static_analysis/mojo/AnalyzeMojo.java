@@ -9,6 +9,7 @@ import io.github.chains_project.theo.static_analysis.analysis.DependencyAnalyzer
 import io.github.chains_project.theo.static_analysis.analysis.PackageMapBuilder;
 import io.github.chains_project.theo.static_analysis.cache.CacheManager;
 import io.github.chains_project.theo.static_analysis.cache.SnapshotManager;
+import io.github.chains_project.theo.static_analysis.model.BoundaryInteraction;
 import io.github.chains_project.theo.static_analysis.model.ReachableSnapshot;
 import io.github.chains_project.theo.static_analysis.model.AnalysisSummary;
 import io.github.chains_project.theo.static_analysis.model.ChangeSet;
@@ -30,6 +31,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -104,6 +106,14 @@ public class AnalyzeMojo extends AbstractMojo {
     @Parameter(property = "theo.failOnChange", defaultValue = "false")
     private boolean failOnChange;
 
+    /** When true, only show dep-initiated and indirect-dep-initiated changes in the report. */
+    @Parameter(property = "theo.depChangesOnly", defaultValue = "false")
+    private boolean depChangesOnly;
+
+    /** When true, suppress API removal entries from the report. */
+    @Parameter(property = "theo.hideRemovals", defaultValue = "false")
+    private boolean hideRemovals;
+
     /** Local Maven repository path, used to resolve the analyzer jar when no explicit path is given. */
     @Parameter(defaultValue = "${settings.localRepository}", readonly = true)
     private String localRepository;
@@ -162,6 +172,12 @@ public class AnalyzeMojo extends AbstractMojo {
                 previousRun = cache.loadLastRun(project.getGroupId(), project.getArtifactId());
             }
 
+            if (previousRun != null) {
+                List<BoundaryInteraction> prevBoundaries = cache.loadBoundaryInteractions(
+                        project.getGroupId(), project.getArtifactId());
+                previousRun.setBoundaryInteractions(prevBoundaries);
+            }
+
             AnalysisSummary summary;
 
             // Deps directory is needed in both paths — the full analysis uses it for
@@ -185,19 +201,30 @@ public class AnalyzeMojo extends AbstractMojo {
                         projectJarPath, pkgNames, mapPath, depInfos, depsDir);
             }
 
+            // Cache boundary interactions and package map for next run's attribution
+            if (summary.getBoundaryInteractions() != null) {
+                cache.storeBoundaryInteractions(project.getGroupId(), project.getArtifactId(),
+                        summary.getBoundaryInteractions());
+            }
+            cache.storePackageMap(project.getGroupId(), project.getArtifactId(),
+                    loadPackageMap(mapPath));
+
             ChangeDetector changeDetector = new ChangeDetector();
             ChangeSet changeSet = changeDetector.detectChanges(previousRun, summary);
             lastChangeSet = changeSet;
             lastSummary = summary;
 
             HtmlReportGenerator reportGen = new HtmlReportGenerator();
-            reportGen.generateReports(summary, changeSet, reportDir.toPath(), reachableOnly, previousRun);
+            reportGen.generateReports(summary, changeSet, reportDir.toPath(), reachableOnly,
+                    previousRun, depChangesOnly, hideRemovals);
 
             if (changeSet.hasPreviousRun() && changeSet.hasChanges()) {
                 PomSuggestionGenerator pomGen = new PomSuggestionGenerator();
                 Path pomDir = project.getBasedir().toPath();
                 pomGen.generateSuggestions(changeSet, summary, previousRun, pomDir);
             }
+
+            writeAttributionOutputs(summary, mapPath);
 
             CliReporter cli = new CliReporter(getLog());
             cli.printSummary(summary, changeSet, reportDir.toPath(), verbose);
@@ -407,6 +434,29 @@ public class AnalyzeMojo extends AbstractMojo {
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .toList();
+    }
+
+    /**
+     * Writes reachable-detail.json, boundary-interactions.json, and copies
+     * the package map to the report directory for downstream attribution scripts.
+     */
+    private void writeAttributionOutputs(AnalysisSummary summary, Path mapPath) throws IOException {
+        Path outDir = reportDir.toPath();
+        ObjectMapper mapper = new ObjectMapper();
+
+        if (summary.getReachableEntries() != null) {
+            mapper.writerWithDefaultPrettyPrinter().writeValue(
+                    outDir.resolve("reachable-detail.json").toFile(),
+                    summary.getReachableEntries());
+        }
+
+        if (summary.getBoundaryInteractions() != null) {
+            mapper.writerWithDefaultPrettyPrinter().writeValue(
+                    outDir.resolve("boundary-interactions.json").toFile(),
+                    summary.getBoundaryInteractions());
+        }
+
+        Files.copy(mapPath, outDir.resolve("theo-package-map.json"), StandardCopyOption.REPLACE_EXISTING);
     }
 
     /**

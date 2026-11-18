@@ -3,6 +3,7 @@ package io.github.chains_project.theo.static_analysis.cache;
 import io.github.chains_project.theo.static_analysis.model.AnalysisSummary;
 import io.github.chains_project.theo.static_analysis.model.CacheKey;
 import io.github.chains_project.theo.static_analysis.model.DependencyReport;
+import io.github.chains_project.theo.static_analysis.model.PathMethod;
 import io.github.chains_project.theo.static_analysis.model.SensitiveApiEntry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,7 +50,8 @@ class CacheManagerTest {
         CacheKey key = new CacheKey("com.example", "my-lib", "1.0.0");
         SensitiveApiEntry entry = new SensitiveApiEntry(
                 "java.io.File.delete", "com.example.Util.cleanup",
-                "DIRECT", List.of(), List.of("cleanup", "File.delete"),
+                "DIRECT", List.of(),
+                List.of(new PathMethod("cleanup", null), new PathMethod("File.delete", null)),
                 "io", "file");
         DependencyReport report = new DependencyReport(
                 "com.example", "my-lib", "1.0.0", "jar",

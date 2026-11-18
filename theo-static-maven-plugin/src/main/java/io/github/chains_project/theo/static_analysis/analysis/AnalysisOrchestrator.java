@@ -96,20 +96,21 @@ public class AnalysisOrchestrator {
         log.info("Dependency analysis complete: {} cached, {} freshly analyzed",
                 cachedCount, dependencies.size() - cachedCount);
 
-        // Step 2: Run client reachability analysis
-        // Uses findReachableEntries to get both the reachable keys and the full
-        // client-rooted entries (with paths starting from client methods).
+        // Step 2: Run client reachability analysis (includes boundary collection)
         log.info("Running client project reachability analysis on {}", projectJarPath);
-        Map<String, List<SensitiveApiEntry>> rawEntries = reachabilityAnalyzer.findReachableEntries(
-                projectJarPath, packageNames, packageMapPath, depsDir
-        );
+        ClientReachabilityAnalyzer.FullReachabilityResult fullResult =
+                reachabilityAnalyzer.analyzeReachabilityFull(projectJarPath, packageNames, packageMapPath, depsDir);
+        Map<String, List<SensitiveApiEntry>> rawEntries = fullResult.entriesByDep();
 
         // Normalize the keys from PackageMatcher format (groupId.artifactId:version)
         // to DependencyReport.gav() format (groupId:artifactId:version).
         Map<String, String> depKeyMapping = new HashMap<>();
+        Map<String, String> depGaMapping = new HashMap<>();
         for (DependencyReport dep : reports) {
             String matcherFormat = dep.getGroupId() + "." + dep.getArtifactId() + ":" + dep.getVersion();
             depKeyMapping.put(matcherFormat, dep.gav());
+            String matcherGa = dep.getGroupId() + "." + dep.getArtifactId();
+            depGaMapping.put(matcherGa, dep.getGroupId() + ":" + dep.getArtifactId());
         }
 
         Set<String> reachable = new HashSet<>();
@@ -125,12 +126,20 @@ public class AnalysisOrchestrator {
         }
         log.info("Found {} reachable sensitive APIs from client code", reachable.size());
 
+        // Normalize boundary artifact GAs from PackageMatcher format to standard format
+        List<BoundaryInteraction> normalizedBoundaries = new ArrayList<>();
+        for (BoundaryInteraction bi : fullResult.boundaryInteractions()) {
+            String normalizedGa = depGaMapping.getOrDefault(bi.depArtifactGa(), bi.depArtifactGa());
+            normalizedBoundaries.add(new BoundaryInteraction(bi.clientMethod(), bi.depMethod(), normalizedGa));
+        }
+
         // Step 3: Merge into AnalysisSummary
         AnalysisSummary summary = new AnalysisSummary(
                 projectGroupId, projectArtifactId, projectVersion,
                 reports, reachable, System.currentTimeMillis()
         );
         summary.setReachableEntries(normalizedEntries);
+        summary.setBoundaryInteractions(normalizedBoundaries);
 
         // Step 4: Cache this run for future change detection
         cacheManager.storeLastRun(summary);
@@ -153,8 +162,9 @@ public class AnalysisOrchestrator {
 
         log.info("Running reachable-only analysis for {}:{}:{}", projectGroupId, projectArtifactId, projectVersion);
 
-        Map<String, List<SensitiveApiEntry>> entriesByDep =
-                reachabilityAnalyzer.findReachableEntries(projectJarPath, packageNames, packageMapPath, depsDir);
+        ClientReachabilityAnalyzer.FullReachabilityResult fullResult =
+                reachabilityAnalyzer.analyzeReachabilityFull(projectJarPath, packageNames, packageMapPath, depsDir);
+        Map<String, List<SensitiveApiEntry>> entriesByDep = fullResult.entriesByDep();
 
         log.info("Found reachable sensitive APIs across {} dependencies", entriesByDep.size());
 
@@ -234,11 +244,24 @@ public class AnalysisOrchestrator {
             }
         }
 
+        // Normalize boundary GAs for the reachable-only path
+        Map<String, String> depGaMapping = new HashMap<>();
+        for (DependencyInfo dep : dependencies) {
+            String matcherGa = dep.groupId() + "." + dep.artifactId();
+            depGaMapping.put(matcherGa, dep.groupId() + ":" + dep.artifactId());
+        }
+        List<BoundaryInteraction> normalizedBoundaries = new ArrayList<>();
+        for (BoundaryInteraction bi : fullResult.boundaryInteractions()) {
+            String normalizedGa = depGaMapping.getOrDefault(bi.depArtifactGa(), bi.depArtifactGa());
+            normalizedBoundaries.add(new BoundaryInteraction(bi.clientMethod(), bi.depMethod(), normalizedGa));
+        }
+
         AnalysisSummary summary = new AnalysisSummary(
                 projectGroupId, projectArtifactId, projectVersion,
                 reports, reachableKeys, System.currentTimeMillis()
         );
         summary.setReachableEntries(reachableEntryMap);
+        summary.setBoundaryInteractions(normalizedBoundaries);
 
         cacheManager.storeLastRun(summary);
         return summary;

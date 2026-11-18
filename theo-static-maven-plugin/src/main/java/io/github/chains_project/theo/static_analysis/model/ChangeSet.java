@@ -1,5 +1,6 @@
 package io.github.chains_project.theo.static_analysis.model;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -57,13 +58,30 @@ public class ChangeSet {
      * Tracks how a specific dependency's sensitive API surface changed
      * between versions, without duplicating the full report data.
      */
+    /** Collects all attributions across modified, added, and removed dependencies. */
+    public List<AttributedChange> getAllAttributions() {
+        List<AttributedChange> all = new ArrayList<>();
+        for (DependencyChange mod : modifiedDependencies) {
+            if (mod.attributions() != null) {
+                all.addAll(mod.attributions());
+            }
+        }
+        return all;
+    }
+
+    /**
+     * Tracks how a specific dependency's sensitive API surface changed
+     * between versions, without duplicating the full report data.
+     */
     public record DependencyChange(
             String groupId,
             String artifactId,
             String oldVersion,
             String newVersion,
             List<SensitiveApiEntry> addedApis,
-            List<SensitiveApiEntry> removedApis
+            List<SensitiveApiEntry> removedApis,
+            /** Root-cause attributions for each added/removed API. May be null. */
+            List<AttributedChange> attributions
     ) {
         /** Returns the GAV for the current (new) version of this dependency. */
         public String gav() {

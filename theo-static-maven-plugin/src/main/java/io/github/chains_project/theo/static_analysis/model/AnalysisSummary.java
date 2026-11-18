@@ -35,6 +35,13 @@ public class AnalysisSummary {
     @JsonIgnore
     private Map<String, List<SensitiveApiEntry>> reachableEntries;
 
+    /**
+     * All client→dep boundary crossings found during call graph analysis.
+     * Used for root-cause attribution of sensitive API changes.
+     */
+    @JsonIgnore
+    private List<BoundaryInteraction> boundaryInteractions;
+
     /** Required by Jackson for deserialization. */
     public AnalysisSummary() {
     }
@@ -130,5 +137,18 @@ public class AnalysisSummary {
 
     public boolean hasReachableEntries() {
         return reachableEntries != null && !reachableEntries.isEmpty();
+    }
+
+    @JsonIgnore
+    public List<BoundaryInteraction> getBoundaryInteractions() {
+        return boundaryInteractions;
+    }
+
+    public void setBoundaryInteractions(List<BoundaryInteraction> boundaryInteractions) {
+        this.boundaryInteractions = boundaryInteractions;
+    }
+
+    public boolean hasBoundaryInteractions() {
+        return boundaryInteractions != null && !boundaryInteractions.isEmpty();
     }
 }

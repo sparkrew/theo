@@ -17,13 +17,14 @@ public class ChangeDetector {
     private static final Logger log = LoggerFactory.getLogger(ChangeDetector.class);
 
     /**
-     * Computes what changed between the previous and current analysis.
-     *
-     * @param previous the last cached analysis run (null if first run)
-     * @param current  the current analysis run
-     * @return a ChangeSet describing all differences
+     * Computes what changed between the previous and current analysis,
+     * with root-cause attribution for each added sensitive API.
      */
     public ChangeSet detectChanges(AnalysisSummary previous, AnalysisSummary current) {
+        return detectChangesWithAttribution(previous, current);
+    }
+
+    private ChangeSet detectChangesWithAttribution(AnalysisSummary previous, AnalysisSummary current) {
         if (previous == null) {
             // First run -- everything is "new", nothing was removed or modified
             log.info("No previous run found; treating all {} dependencies as newly added",
@@ -53,18 +54,9 @@ public class ChangeDetector {
             DependencyReport previousReport = previousByGa.get(ga);
 
             if (previousReport == null) {
-                // Brand new dependency that wasn't in the previous run
                 added.add(currentReport);
-            } else if (!previousReport.getVersion().equals(currentReport.getVersion())) {
-                // Version changed -- compare sensitive APIs to see if the surface shifted
-                ChangeSet.DependencyChange change = compareApis(previousReport, currentReport);
-                if (change != null) {
-                    modified.add(change);
-                }
             } else {
-                // Same version -- still worth checking if sensitive APIs changed (e.g.
-                // snapshot rebuilds or if the analyzer was updated and finds new things)
-                ChangeSet.DependencyChange change = compareApis(previousReport, currentReport);
+                ChangeSet.DependencyChange change = compareApis(previousReport, currentReport, previous, current);
                 if (change != null) {
                     modified.add(change);
                 }
@@ -115,7 +107,9 @@ public class ChangeDetector {
      * since that's the stable identity for a sensitive API across versions.
      */
     private ChangeSet.DependencyChange compareApis(DependencyReport previousReport,
-                                                    DependencyReport currentReport) {
+                                                    DependencyReport currentReport,
+                                                    AnalysisSummary previous,
+                                                    AnalysisSummary current) {
         // Collect the sensitive API names from each report into sets for diffing.
         Set<String> previousApis = extractSensitiveApiNames(previousReport);
         Set<String> currentApis = extractSensitiveApiNames(currentReport);
@@ -142,14 +136,107 @@ public class ChangeDetector {
                 currentReport.getGroupId(), currentReport.getArtifactId(),
                 addedEntries.size(), removedEntries.size());
 
+        List<AttributedChange> attributions = attributeChanges(
+                addedEntries, removedEntries, previousReport, currentReport, previous, current);
+
         return new ChangeSet.DependencyChange(
                 currentReport.getGroupId(),
                 currentReport.getArtifactId(),
                 previousReport.getVersion(),
                 currentReport.getVersion(),
                 addedEntries,
-                removedEntries
+                removedEntries,
+                attributions
         );
+    }
+
+    /**
+     * Attributes each added/removed API to a root cause by comparing
+     * the entry's boundary pair against the previous boundary set.
+     */
+    private List<AttributedChange> attributeChanges(
+            List<SensitiveApiEntry> addedEntries,
+            List<SensitiveApiEntry> removedEntries,
+            DependencyReport previousReport,
+            DependencyReport currentReport,
+            AnalysisSummary previous,
+            AnalysisSummary current) {
+
+        List<AttributedChange> attributions = new ArrayList<>();
+        String depGa = currentReport.getGroupId() + ":" + currentReport.getArtifactId();
+        boolean depVersionChanged = !previousReport.getVersion().equals(currentReport.getVersion());
+
+        Set<String> prevBoundaryKeys = buildBoundaryLookup(previous);
+        Set<String> currBoundaryKeys = buildBoundaryLookup(current);
+
+        for (SensitiveApiEntry entry : addedEntries) {
+            RootCause cause = classifyChange(entry, depGa, depVersionChanged, prevBoundaryKeys);
+            attributions.add(new AttributedChange(entry, "ADDED", cause, depGa,
+                    describeAttribution(cause, depGa)));
+        }
+
+        for (SensitiveApiEntry entry : removedEntries) {
+            RootCause cause = classifyChange(entry, depGa, depVersionChanged, currBoundaryKeys);
+            attributions.add(new AttributedChange(entry, "REMOVED", cause, depGa,
+                    describeAttribution(cause, depGa)));
+        }
+
+        return attributions;
+    }
+
+    /** Classifies the root cause of an API change based on boundary stability. */
+    private RootCause classifyChange(SensitiveApiEntry entry, String depGa,
+                                      boolean depVersionChanged, Set<String> boundaryKeys) {
+        String boundaryKey = extractBoundaryKey(entry, depGa);
+        boolean boundaryExisted = boundaryKey != null && boundaryKeys.contains(boundaryKey);
+        boolean isIndirect = "INDIRECT".equals(entry.accessType());
+
+        if (boundaryExisted) {
+            if (depVersionChanged) {
+                return isIndirect ? RootCause.DEP_INITIATED_INDIRECT : RootCause.DEP_INITIATED;
+            } else {
+                return RootCause.INDIRECT_DEP_INITIATED;
+            }
+        } else {
+            return isIndirect ? RootCause.CLIENT_INITIATED_INDIRECT : RootCause.CLIENT_INITIATED;
+        }
+    }
+
+    /**
+     * Builds the boundary key for a sensitive API entry:
+     * "clientMethod::depMethod::depArtifactGa".
+     */
+    private String extractBoundaryKey(SensitiveApiEntry entry, String depGa) {
+        if (entry.fullPath() == null || entry.fullPath().isEmpty()) {
+            return null;
+        }
+        String clientMethod = entry.fullPath().get(0).method();
+        String depMethod = entry.entryPoint();
+        return clientMethod + "::" + depMethod + "::" + depGa;
+    }
+
+    /**
+     * Builds a lookup set of boundary keys from the previous analysis.
+     */
+    private Set<String> buildBoundaryLookup(AnalysisSummary previous) {
+        Set<String> keys = new HashSet<>();
+        if (previous == null || previous.getBoundaryInteractions() == null) {
+            return keys;
+        }
+        for (BoundaryInteraction bi : previous.getBoundaryInteractions()) {
+            keys.add(bi.clientMethod() + "::" + bi.depMethod() + "::" + bi.depArtifactGa());
+        }
+        return keys;
+    }
+
+    private String describeAttribution(RootCause cause, String depGa) {
+        return switch (cause) {
+            case CLIENT_INITIATED -> "Client boundary changed, direct access to " + depGa;
+            case CLIENT_INITIATED_INDIRECT -> "Client boundary changed, indirect access via " + depGa;
+            case DEP_INITIATED -> "Boundary stable, " + depGa + " version changed, direct access";
+            case DEP_INITIATED_INDIRECT -> "Boundary stable, " + depGa + " version changed, indirect access";
+            case INDIRECT_DEP_INITIATED -> "Boundary stable, " + depGa + " version unchanged";
+        };
     }
 
     /**

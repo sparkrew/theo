@@ -2,7 +2,9 @@ package io.github.chains_project.theo.static_analysis.cache;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.core.type.TypeReference;
 import io.github.chains_project.theo.static_analysis.model.AnalysisSummary;
+import io.github.chains_project.theo.static_analysis.model.BoundaryInteraction;
 import io.github.chains_project.theo.static_analysis.model.CacheKey;
 import io.github.chains_project.theo.static_analysis.model.DependencyReport;
 import org.slf4j.Logger;
@@ -11,6 +13,10 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Manages a persistent on-disk cache so that dependency analysis results
@@ -27,6 +33,8 @@ public class CacheManager {
 
     private static final String REPORT_FILE = "report.json";
     private static final String LAST_RUN_FILE = "last-run.json";
+    private static final String BOUNDARY_FILE = "boundary-interactions.json";
+    private static final String PACKAGE_MAP_FILE = "package-map.json";
 
     private final Path cacheDir;
     private final ObjectMapper mapper;
@@ -124,6 +132,59 @@ public class CacheManager {
         }
     }
 
+    // ---- boundary interactions and package map ------------------------------
+
+    public void storeBoundaryInteractions(String groupId, String artifactId,
+                                          List<BoundaryInteraction> boundaries) {
+        Path path = projectDir(groupId, artifactId).resolve(BOUNDARY_FILE);
+        try {
+            Files.createDirectories(path.getParent());
+            mapper.writeValue(path.toFile(), boundaries);
+            logger.debug("Stored {} boundary interactions at {}", boundaries.size(), path);
+        } catch (IOException e) {
+            logger.warn("Could not write boundary interactions to {}: {}", path, e.getMessage());
+        }
+    }
+
+    public List<BoundaryInteraction> loadBoundaryInteractions(String groupId, String artifactId) {
+        Path path = projectDir(groupId, artifactId).resolve(BOUNDARY_FILE);
+        if (!Files.exists(path)) {
+            return Collections.emptyList();
+        }
+        try {
+            return mapper.readValue(path.toFile(), new TypeReference<List<BoundaryInteraction>>() {});
+        } catch (IOException e) {
+            logger.warn("Failed to read boundary interactions at {}: {}", path, e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    public void storePackageMap(String groupId, String artifactId,
+                                Map<String, Set<String>> packageMap) {
+        Path path = projectDir(groupId, artifactId).resolve(PACKAGE_MAP_FILE);
+        try {
+            Files.createDirectories(path.getParent());
+            mapper.writeValue(path.toFile(), packageMap);
+            logger.debug("Stored package map at {}", path);
+        } catch (IOException e) {
+            logger.warn("Could not write package map to {}: {}", path, e.getMessage());
+        }
+    }
+
+    public Map<String, Set<String>> loadPackageMap(String groupId, String artifactId) {
+        Path path = projectDir(groupId, artifactId).resolve(PACKAGE_MAP_FILE);
+        if (!Files.exists(path)) {
+            return null;
+        }
+        try {
+            return mapper.readValue(path.toFile(),
+                    new TypeReference<Map<String, Set<String>>>() {});
+        } catch (IOException e) {
+            logger.warn("Failed to read package map at {}: {}", path, e.getMessage());
+            return null;
+        }
+    }
+
     // ---- path helpers ------------------------------------------------------
 
     private Path dependencyReportPath(CacheKey key) {
@@ -134,12 +195,12 @@ public class CacheManager {
                 .resolve(REPORT_FILE);
     }
 
-    private Path projectLastRunPath(String groupId, String artifactId) {
-        // Version is intentionally excluded — we want to compare across version
-        // bumps, which is exactly when dependency changes matter most.
+    private Path projectDir(String groupId, String artifactId) {
         String dirName = groupId + "__" + artifactId;
-        return cacheDir.resolve("projects")
-                .resolve(dirName)
-                .resolve(LAST_RUN_FILE);
+        return cacheDir.resolve("projects").resolve(dirName);
+    }
+
+    private Path projectLastRunPath(String groupId, String artifactId) {
+        return projectDir(groupId, artifactId).resolve(LAST_RUN_FILE);
     }
 }

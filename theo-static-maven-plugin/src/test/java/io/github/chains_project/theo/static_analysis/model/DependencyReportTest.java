@@ -49,7 +49,8 @@ class DependencyReportTest {
                 List.of(), List.of(), "io", "file");
         SensitiveApiEntry e2 = new SensitiveApiEntry(
                 "java.net.Socket.<init>", "ep2", "INDIRECT",
-                List.of("dep1"), List.of("ep2", "dep1.m", "Socket.<init>"),
+                List.of("dep1"),
+                List.of(new PathMethod("ep2", null), new PathMethod("dep1.m", null)),
                 "network", "socket");
         DependencyReport report = new DependencyReport(
                 "g", "a", "v", "jar", List.of(e1, e2), 2, 0L);
@@ -67,12 +68,13 @@ class DependencyReportTest {
     void jacksonSerializationRoundTrip() throws Exception {
         SensitiveApiEntry e1 = new SensitiveApiEntry(
                 "java.io.File.delete", "com.example.Util.cleanup",
-                "DIRECT", List.of(), List.of("cleanup", "File.delete"),
+                "DIRECT", List.of(),
+                List.of(new PathMethod("cleanup", null), new PathMethod("File.delete", null)),
                 "io", "file");
         SensitiveApiEntry e2 = new SensitiveApiEntry(
                 "java.net.Socket.<init>", "com.example.Net.connect",
                 "INDIRECT", List.of("lib-x"),
-                List.of("connect", "lib-x.open", "Socket.<init>"),
+                List.of(new PathMethod("connect", null), new PathMethod("lib-x.open", null)),
                 "network", "socket");
 
         DependencyReport original = new DependencyReport(

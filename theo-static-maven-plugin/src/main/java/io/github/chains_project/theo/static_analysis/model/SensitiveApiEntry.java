@@ -23,8 +23,8 @@ public record SensitiveApiEntry(
         /** Intermediary dependencies involved when accessType is INDIRECT. May be empty for DIRECT. */
         List<String> dependencies,
 
-        /** The complete call chain from entryPoint down to sensitiveApi. */
-        List<String> fullPath,
+        /** The call path: each step carries the method signature and its owning artifact. */
+        List<PathMethod> fullPath,
 
         /** High-level category from the sensitive API descriptor, if available. */
         String category,

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.chains_project.theo.theo_commons.APILoader;
 import io.github.chains_project.theo.theo_commons.SensitiveAPIDescriptor;
 import io.github.chains_project.theo.static_analysis.model.DependencyReport;
+import io.github.chains_project.theo.static_analysis.model.PathMethod;
 import io.github.chains_project.theo.static_analysis.model.SensitiveApiEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -219,7 +220,10 @@ public class DependencyAnalyzer {
             String entryPoint = node.path("entryPoint").asText("");
 
             List<String> dependencies = jsonArrayToList(node.path("dependencies"));
-            List<String> fullPath = jsonArrayToList(node.path("fullPath"));
+            List<String> rawPath = jsonArrayToList(node.path("fullPath"));
+            List<PathMethod> fullPath = rawPath.stream()
+                    .map(m -> new PathMethod(m, null))
+                    .toList();
 
             // The package-static-analyzer doesn't include category info in its output,
             // so we look it up from the sensitive API definitions.

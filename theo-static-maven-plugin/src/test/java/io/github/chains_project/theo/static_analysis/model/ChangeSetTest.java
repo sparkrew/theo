@@ -47,7 +47,7 @@ class ChangeSetTest {
     void hasChangesReturnsTrueWhenModifiedIsNonEmpty() {
         ChangeSet.DependencyChange change = new ChangeSet.DependencyChange(
                 "g", "a", "1.0", "2.0",
-                Collections.emptyList(), Collections.emptyList());
+                Collections.emptyList(), Collections.emptyList(), null);
         ChangeSet cs = new ChangeSet(
                 Collections.emptyList(),
                 Collections.emptyList(),
@@ -64,7 +64,7 @@ class ChangeSetTest {
                 "g2", "a2", "1.0", "jar", null, 0, 0L);
         ChangeSet.DependencyChange change = new ChangeSet.DependencyChange(
                 "g3", "a3", "1.0", "2.0",
-                Collections.emptyList(), Collections.emptyList());
+                Collections.emptyList(), Collections.emptyList(), null);
 
         ChangeSet cs = new ChangeSet(
                 List.of(dep1),
@@ -91,7 +91,7 @@ class ChangeSetTest {
     void dependencyChangeGavReturnsCorrectFormat() {
         ChangeSet.DependencyChange change = new ChangeSet.DependencyChange(
                 "com.example", "my-lib", "1.0.0", "2.0.0",
-                Collections.emptyList(), Collections.emptyList());
+                Collections.emptyList(), Collections.emptyList(), null);
         assertEquals("com.example:my-lib:2.0.0", change.gav());
     }
 }

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import io.github.chains_project.theo.theo_commons.APILoader;
 import io.github.chains_project.theo.theo_commons.PackageMatcher;
 import io.github.chains_project.theo.theo_commons.SensitiveAPIDescriptor;
+import io.github.chains_project.theo.static_analysis.model.BoundaryInteraction;
+import io.github.chains_project.theo.static_analysis.model.PathMethod;
 import io.github.chains_project.theo.static_analysis.model.SensitiveApiEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -73,9 +75,16 @@ public class ClientReachabilityAnalyzer {
     }
 
     /**
-     * Core analysis logic shared by both public methods. Walks the client project's
-     * call graph and collects both the identifier set (for highlighting) and the full
-     * SensitiveApiEntry objects (for building reports).
+     * Returns the complete analysis result including boundary interactions.
+     * Use this when attribution data is needed alongside reachability.
+     */
+    public FullReachabilityResult analyzeReachabilityFull(String pathToJar, List<String> packageNames, Path packageMapPath, Path depsDir) {
+        return analyzeReachability(pathToJar, packageNames, packageMapPath, depsDir);
+    }
+
+    /**
+     * Core analysis logic. Walks the call graph, collects reachable sensitive APIs
+     * and all client-to-dependency boundary crossings for attribution.
      */
     private FullReachabilityResult analyzeReachability(String pathToJar, List<String> packageNames, Path packageMapPath, Path depsDir) {
         List<SensitiveAPIDescriptor> sensitiveApiList = APILoader.loadFromClasspath(
@@ -101,13 +110,17 @@ public class ClientReachabilityAnalyzer {
         Set<String> reachableKeys = new HashSet<>();
         Map<String, List<SensitiveApiEntry>> entriesByDep = new HashMap<>();
         Set<String> seenPairs = new HashSet<>();
+        List<BoundaryInteraction> boundaryInteractions = new ArrayList<>();
+        Set<String> seenBoundaries = new HashSet<>();
 
         try {
             CallGraph cg = new RapidTypeAnalysisAlgorithm(view).initialize(new ArrayList<>(entryPoints));
             view = null;
 
             for (MethodSignature entryPoint : entryPoints) {
-                Set<MethodSignature> reachable = getAllReachableMethods(cg, entryPoint);
+                Set<MethodSignature> reachable = getAllReachableMethodsWithBoundaries(
+                        cg, entryPoint, packageNames, ignoredPrefixes,
+                        packageMapPath, boundaryInteractions, seenBoundaries);
 
                 Set<MethodSignature> reachableSensitive = reachable.stream()
                         .filter(method -> isSensitiveAPI(method, sensitiveApiIdentifiers))
@@ -173,7 +186,12 @@ public class ClientReachabilityAnalyzer {
                                     continue;
                                 }
 
-                                List<String> fullPath = List.of(clientCaller, depCaller);
+                                String clientGa = resolveArtifactGa(clientCaller, ignoredPrefixes, packageMapPath);
+                                String depCallerGa = resolveArtifactGa(depCaller, ignoredPrefixes, packageMapPath);
+                                List<PathMethod> fullPath = List.of(
+                                        new PathMethod(clientCaller, clientGa),
+                                        new PathMethod(depCaller, depCallerGa)
+                                );
 
                                 String[] catInfo = categoryLookup.get(sensitiveApiName);
                                 String category = catInfo != null ? catInfo[0] : null;
@@ -199,12 +217,15 @@ public class ClientReachabilityAnalyzer {
             log.error("Failed to initialize call graph or analyze reachability.", e);
         }
 
-        return new FullReachabilityResult(reachableKeys, entriesByDep);
+        log.info("Collected {} boundary interactions.", boundaryInteractions.size());
+        return new FullReachabilityResult(reachableKeys, entriesByDep, boundaryInteractions);
     }
 
-    private record FullReachabilityResult(
+    /** Complete result of the reachability analysis including boundary interactions. */
+    public record FullReachabilityResult(
             Set<String> reachableKeys,
-            Map<String, List<SensitiveApiEntry>> entriesByDep
+            Map<String, List<SensitiveApiEntry>> entriesByDep,
+            List<BoundaryInteraction> boundaryInteractions
     ) {}
 
     // -- Private helpers (same algorithms as MethodExtractor) --------------------------------
@@ -246,10 +267,15 @@ public class ClientReachabilityAnalyzer {
     }
 
     /**
-     * Breadth-first traversal of the call graph starting from {@code start}.
-     * Returns every method signature reachable from the starting point.
+     * BFS from an entry point that also collects client→dep boundary crossings.
+     * A boundary is recorded whenever a client method calls a third-party method.
      */
-    private Set<MethodSignature> getAllReachableMethods(CallGraph cg, MethodSignature start) {
+    private Set<MethodSignature> getAllReachableMethodsWithBoundaries(
+            CallGraph cg, MethodSignature start,
+            List<String> clientPackageNames, Set<String> ignoredPrefixes,
+            Path packageMapPath,
+            List<BoundaryInteraction> boundaries, Set<String> seenBoundaryKeys) {
+
         Set<MethodSignature> reachable = new HashSet<>();
         Deque<MethodSignature> queue = new ArrayDeque<>();
         queue.add(start);
@@ -257,8 +283,23 @@ public class ClientReachabilityAnalyzer {
 
         while (!queue.isEmpty()) {
             MethodSignature current = queue.poll();
+            boolean sourceIsClient = isClientMethod(current, clientPackageNames);
+
             for (CallGraph.Call call : cg.callsFrom(current)) {
                 MethodSignature target = call.getTargetMethodSignature();
+
+                if (sourceIsClient && isThirdPartyMethod(target, ignoredPrefixes)) {
+                    String clientFormatted = formatMethodSignature(current);
+                    String depFormatted = formatMethodSignature(target);
+                    String key = clientFormatted + "::" + depFormatted;
+                    if (seenBoundaryKeys.add(key)) {
+                        String depGa = resolveArtifactGa(depFormatted, ignoredPrefixes, packageMapPath);
+                        if (depGa != null) {
+                            boundaries.add(new BoundaryInteraction(clientFormatted, depFormatted, depGa));
+                        }
+                    }
+                }
+
                 if (reachable.add(target)) {
                     queue.add(target);
                 }
@@ -306,6 +347,12 @@ public class ClientReachabilityAnalyzer {
         String formatted = formatName(sig.getDeclClassType().getFullyQualifiedName())
                 + "." + formatName(sig.getName());
         return identifiers.contains(formatted);
+    }
+
+    /** True if the method belongs to the client project (its package starts with a client prefix). */
+    private boolean isClientMethod(MethodSignature method, List<String> clientPackageNames) {
+        String packageName = method.getDeclClassType().getPackageName().getName();
+        return clientPackageNames.stream().anyMatch(packageName::startsWith);
     }
 
     /**
@@ -360,5 +407,22 @@ public class ClientReachabilityAnalyzer {
             }
         }
         return packageName;
+    }
+
+    /**
+     * Resolves the artifact GA (groupId.artifactId) for a formatted method signature.
+     * Returns null for client-project or JDK methods (those in ignored prefixes).
+     */
+    private String resolveArtifactGa(String formattedMethod, Set<String> ignoredPrefixes, Path packageMapPath) {
+        String pkg = extractPackageName(formattedMethod, ignoredPrefixes);
+        if (pkg == null) {
+            return null;
+        }
+        String gavWithVersion = PackageMatcher.getDependencyName(pkg, packageMapPath);
+        if (gavWithVersion == null) {
+            return null;
+        }
+        int lastColon = gavWithVersion.lastIndexOf(':');
+        return lastColon > 0 ? gavWithVersion.substring(0, lastColon) : gavWithVersion;
     }
 }

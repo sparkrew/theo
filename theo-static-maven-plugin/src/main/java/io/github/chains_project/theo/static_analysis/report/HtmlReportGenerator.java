@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Generates three HTML reports from the analysis results using a simple
@@ -26,6 +27,17 @@ public class HtmlReportGenerator {
     private static final Logger log = LoggerFactory.getLogger(HtmlReportGenerator.class);
     private static final DateTimeFormatter TIMESTAMP_FORMAT =
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
+
+    private static final String ATTRIBUTION_CSS = """
+        <style>
+        .root-cause { display: inline-block; padding: 2px 8px; border-radius: 4px;
+            font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em; margin-left: 6px; }
+        .root-cause.client-initiated { background: #eff6ff; color: #2563eb; }
+        .root-cause.client-initiated-indirect { background: #fffbeb; color: #d97706; }
+        .root-cause.dep-initiated { background: #fef2f2; color: #dc2626; }
+        .root-cause.indirect-dep-initiated { background: #f5f3ff; color: #7c3aed; }
+        </style>
+        """;
 
     public HtmlReportGenerator() {
     }
@@ -49,12 +61,24 @@ public class HtmlReportGenerator {
     public void generateReports(AnalysisSummary summary, ChangeSet changeSet,
                                 Path reportDir, boolean reachableOnly,
                                 AnalysisSummary previousSummary) throws IOException {
+        generateReports(summary, changeSet, reportDir, reachableOnly, previousSummary, false, false);
+    }
+
+    /**
+     * @param depChangesOnly when true, only dep-initiated and indirect-dep changes are shown
+     * @param hideRemovals   when true, removed APIs are suppressed from the report
+     */
+    public void generateReports(AnalysisSummary summary, ChangeSet changeSet,
+                                Path reportDir, boolean reachableOnly,
+                                AnalysisSummary previousSummary,
+                                boolean depChangesOnly, boolean hideRemovals) throws IOException {
         Files.createDirectories(reportDir);
 
         String template = loadTemplate();
 
         generateReachableReport(summary, template, reportDir);
-        generateChangesReport(summary, changeSet, template, reportDir, reachableOnly, previousSummary);
+        generateChangesReport(summary, changeSet, template, reportDir,
+                reachableOnly, previousSummary, depChangesOnly, hideRemovals);
 
         if (!reachableOnly) {
             generateAllDependenciesReport(summary, template, reportDir);
@@ -302,8 +326,10 @@ public class HtmlReportGenerator {
 
     private void generateChangesReport(AnalysisSummary summary, ChangeSet changeSet,
                                        String template, Path reportDir, boolean reachableOnly,
-                                       AnalysisSummary previousSummary) throws IOException {
+                                       AnalysisSummary previousSummary,
+                                       boolean depChangesOnly, boolean hideRemovals) throws IOException {
         StringBuilder content = new StringBuilder();
+        content.append(ATTRIBUTION_CSS);
 
         if (!changeSet.hasPreviousRun()) {
             content.append("<p class=\"stats\">First analysis run — no previous data to compare against.</p>\n");
@@ -312,15 +338,15 @@ public class HtmlReportGenerator {
         } else if (reachableOnly) {
             content.append("<div class=\"reachable-section\">\n");
             content.append("<h2>Changes to reachable APIs</h2>\n");
-            buildChangesSection(content, changeSet, summary, true, previousSummary);
+            buildChangesSection(content, changeSet, summary, true, previousSummary, depChangesOnly, hideRemovals);
             content.append("</div>\n");
         } else {
             content.append("<h2>Changes across all dependencies</h2>\n");
-            buildChangesSection(content, changeSet, summary, false, previousSummary);
+            buildChangesSection(content, changeSet, summary, false, previousSummary, depChangesOnly, hideRemovals);
 
             content.append("<div class=\"reachable-section\">\n");
             content.append("<h2>Changes to reachable APIs</h2>\n");
-            buildChangesSection(content, changeSet, summary, true, previousSummary);
+            buildChangesSection(content, changeSet, summary, true, previousSummary, depChangesOnly, hideRemovals);
             content.append("</div>\n");
         }
 
@@ -330,8 +356,8 @@ public class HtmlReportGenerator {
 
     private void buildChangesSection(StringBuilder content, ChangeSet changeSet,
                                      AnalysisSummary summary, boolean onlyReachable,
-                                     AnalysisSummary previousSummary) {
-        // Collect per-category stats before rendering the details
+                                     AnalysisSummary previousSummary,
+                                     boolean depChangesOnly, boolean hideRemovals) {
         Map<String, Integer> addedByCategory = new LinkedHashMap<>();
         Map<String, Integer> removedByCategory = new LinkedHashMap<>();
         Map<String, Set<String>> changedDepsByCategory = new LinkedHashMap<>();
@@ -341,58 +367,57 @@ public class HtmlReportGenerator {
 
         boolean anyChanges = false;
 
-        // Version-changed dependencies first — these are the most important changes
-        List<ChangeSet.DependencyChange> versionChanged = changeSet.getModifiedDependencies().stream()
-            .filter(m -> !m.oldVersion().equals(m.newVersion()))
-            .toList();
-        List<ChangeSet.DependencyChange> sameVersion = changeSet.getModifiedDependencies().stream()
-            .filter(m -> m.oldVersion().equals(m.newVersion()))
-            .toList();
+        // Sort modified dependencies by max criticality (highest first)
+        List<ChangeSet.DependencyChange> sortedMods = new ArrayList<>(changeSet.getModifiedDependencies());
+        sortedMods.sort(Comparator.comparingInt(this::maxCriticality).reversed());
 
-        for (ChangeSet.DependencyChange mod : versionChanged) {
-            anyChanges |= renderModifiedDep(content, mod, summary, onlyReachable, true, previousSummary);
+        for (ChangeSet.DependencyChange mod : sortedMods) {
+            if (depChangesOnly && maxCriticality(mod) < 3) continue;
+            boolean versionChanged = !mod.oldVersion().equals(mod.newVersion());
+            anyChanges |= renderModifiedDep(content, mod, summary, onlyReachable,
+                    versionChanged, previousSummary, hideRemovals);
         }
 
-        // Then same-version modifications (snapshot rebuilds, analyzer updates, etc.)
-        for (ChangeSet.DependencyChange mod : sameVersion) {
-            anyChanges |= renderModifiedDep(content, mod, summary, onlyReachable, false, previousSummary);
-        }
+        // Added dependencies (always client-initiated, skip when depChangesOnly)
+        if (!depChangesOnly) {
+            for (DependencyReport added : changeSet.getAddedDependencies()) {
+                List<SensitiveApiEntry> apis = onlyReachable
+                    ? added.getSensitiveApis().stream()
+                        .filter(a -> summary.isReachable(added.gav(), a.sensitiveApi())).toList()
+                    : added.getSensitiveApis();
+                if (apis.isEmpty() && onlyReachable) continue;
 
-        // Added dependencies
-        for (DependencyReport added : changeSet.getAddedDependencies()) {
-            List<SensitiveApiEntry> apis = onlyReachable
-                ? added.getSensitiveApis().stream()
-                    .filter(a -> summary.isReachable(added.gav(), a.sensitiveApi())).toList()
-                : added.getSensitiveApis();
-            if (apis.isEmpty() && onlyReachable) continue;
-
-            anyChanges = true;
-            content.append("<details class=\"dependency added\">\n");
-            content.append("  <summary><span class=\"change-marker\">+</span> <span class=\"dep-gav\">")
-                .append(escapeHtml(added.gav())).append("</span>")
-                .append(depMetaHtml(added))
-                .append(" (new)</summary>\n");
-            buildCategorizedApiList(content, apis, "", onlyReachable && summary.hasReachableEntries());
-            content.append("</details>\n");
-        }
-
-        // Removed dependencies — in reachable mode, only show if they had
-        // reachable APIs in the previous run
-        for (DependencyReport removed : changeSet.getRemovedDependencies()) {
-            if (onlyReachable) {
-                if (previousSummary == null) continue;
-                boolean wasReachable = removed.getSensitiveApis().stream()
-                    .anyMatch(a -> previousSummary.isReachable(removed.gav(), a.sensitiveApi()));
-                if (!wasReachable) continue;
+                anyChanges = true;
+                content.append("<details class=\"dependency added\">\n");
+                content.append("  <summary><span class=\"change-marker\">+</span> <span class=\"dep-gav\">")
+                    .append(escapeHtml(added.gav())).append("</span>")
+                    .append(depMetaHtml(added))
+                    .append(" (new)")
+                    .append(rootCauseBadgeHtml(RootCause.CLIENT_INITIATED))
+                    .append("</summary>\n");
+                buildCategorizedApiList(content, apis, "", onlyReachable && summary.hasReachableEntries(), null);
+                content.append("</details>\n");
             }
+        }
 
-            anyChanges = true;
-            content.append("<details class=\"dependency removed\">\n");
-            content.append("  <summary><span class=\"change-marker\">-</span> <span class=\"dep-gav\">")
-                .append(escapeHtml(removed.gav())).append("</span>")
-                .append(depMetaHtml(removed))
-                .append(" (removed)</summary>\n");
-            content.append("</details>\n");
+        // Removed dependencies
+        if (!hideRemovals) {
+            for (DependencyReport removed : changeSet.getRemovedDependencies()) {
+                if (onlyReachable) {
+                    if (previousSummary == null) continue;
+                    boolean wasReachable = removed.getSensitiveApis().stream()
+                        .anyMatch(a -> previousSummary.isReachable(removed.gav(), a.sensitiveApi()));
+                    if (!wasReachable) continue;
+                }
+
+                anyChanges = true;
+                content.append("<details class=\"dependency removed\">\n");
+                content.append("  <summary><span class=\"change-marker\">-</span> <span class=\"dep-gav\">")
+                    .append(escapeHtml(removed.gav())).append("</span>")
+                    .append(depMetaHtml(removed))
+                    .append(" (removed)</summary>\n");
+                content.append("</details>\n");
+            }
         }
 
         if (!anyChanges) {
@@ -402,16 +427,17 @@ public class HtmlReportGenerator {
 
     private boolean renderModifiedDep(StringBuilder content, ChangeSet.DependencyChange mod,
                                        AnalysisSummary summary, boolean onlyReachable,
-                                       boolean versionChanged, AnalysisSummary previousSummary) {
+                                       boolean versionChanged, AnalysisSummary previousSummary,
+                                       boolean hideRemovals) {
         List<SensitiveApiEntry> addedApis = onlyReachable
             ? mod.addedApis().stream()
                 .filter(a -> summary.isReachable(mod.gav(), a.sensitiveApi())).toList()
             : mod.addedApis();
-        // Removed APIs can't be checked against the current reachable set (they
-        // no longer exist). In reachable mode, check the previous run's
-        // reachability data instead — only show APIs that were actually reachable.
+
         List<SensitiveApiEntry> removedApis;
-        if (onlyReachable && previousSummary != null) {
+        if (hideRemovals) {
+            removedApis = List.of();
+        } else if (onlyReachable && previousSummary != null) {
             String prevGav = mod.groupId() + ":" + mod.artifactId() + ":" + mod.oldVersion();
             removedApis = mod.removedApis().stream()
                 .filter(a -> previousSummary.isReachable(prevGav, a.sensitiveApi()))
@@ -422,12 +448,14 @@ public class HtmlReportGenerator {
 
         if (addedApis.isEmpty() && removedApis.isEmpty()) return false;
 
+        // Build attribution lookup for badge rendering
+        Map<String, AttributedChange> attrByApi = buildAttributionLookup(mod.attributions());
+
         String depClass = versionChanged ? "dependency modified version-changed" : "dependency modified";
         String versionLabel = versionChanged
             ? " (" + mod.oldVersion() + " → " + mod.newVersion() + ")"
             : "";
 
-        // Look up scope/depth from the current summary
         DependencyReport depReport = summary.getDependencyReports().stream()
             .filter(d -> d.getGroupId().equals(mod.groupId()) && d.getArtifactId().equals(mod.artifactId()))
             .findFirst().orElse(null);
@@ -442,33 +470,29 @@ public class HtmlReportGenerator {
 
         if (!addedApis.isEmpty()) {
             content.append("    <h3>Added</h3>\n");
-            buildCategorizedApiList(content, addedApis, "+ ", onlyReachable && summary.hasReachableEntries());
+            buildCategorizedApiList(content, addedApis, "+ ",
+                    onlyReachable && summary.hasReachableEntries(), attrByApi);
         }
         if (!removedApis.isEmpty()) {
-            // Removed APIs come from the previous run's per-dep data, so they
-            // don't have client-rooted paths. Show them as a flat list.
             content.append("    <h3>Removed</h3>\n");
-            buildCategorizedApiList(content, removedApis, "- ", false);
+            buildCategorizedApiList(content, removedApis, "- ", false, null);
         }
         content.append("</details>\n");
         return true;
     }
 
-    /**
-     * Renders a deduplicated list of APIs grouped by category and subcategory.
-     * Used in the changes report for the "all changes" section.
-     */
     private void buildCategorizedApiList(StringBuilder content, List<SensitiveApiEntry> apis, String prefix) {
-        buildCategorizedApiList(content, apis, prefix, false);
+        buildCategorizedApiList(content, apis, prefix, false, null);
     }
 
     /**
      * Renders a deduplicated list of APIs grouped by category and subcategory.
-     * When showPaths is true, each API gets expandable path details —
-     * used in the changes report for reachable APIs.
+     * When showPaths is true, each API gets expandable path details.
+     * When attrByApi is non-null, root-cause badges are shown next to each API.
      */
     private void buildCategorizedApiList(StringBuilder content, List<SensitiveApiEntry> apis,
-                                         String prefix, boolean showPaths) {
+                                         String prefix, boolean showPaths,
+                                         Map<String, AttributedChange> attrByApi) {
         // category -> subcategory -> list of entries (deduplicated by API name)
         Map<String, Map<String, List<SensitiveApiEntry>>> grouped = new TreeMap<>();
         Set<String> seen = new HashSet<>();
@@ -488,12 +512,14 @@ public class HtmlReportGenerator {
 
                 for (SensitiveApiEntry entry : subEntry.getValue()) {
                     String changeType = prefix.startsWith("+") ? " added" : prefix.startsWith("-") ? " removed" : "";
+                    String badge = attrByApi != null ? rootCauseBadge(attrByApi.get(entry.sensitiveApi())) : "";
 
                     if (showPaths) {
                         content.append("    <details class=\"sensitive-api").append(changeType).append("\">\n");
                         content.append("      <summary>").append(escapeHtml(prefix))
                             .append(escapeHtml(entry.sensitiveApi()))
                             .append(accessTypeSpan(entry.accessType()))
+                            .append(badge)
                             .append("</summary>\n");
                         buildPathDetails(content, entry);
                         content.append("    </details>\n");
@@ -501,6 +527,7 @@ public class HtmlReportGenerator {
                         content.append("    <div class=\"api-entry").append(changeType)
                             .append("\">").append(escapeHtml(prefix)).append(escapeHtml(entry.sensitiveApi()))
                             .append(accessTypeSpan(entry.accessType()))
+                            .append(badge)
                             .append("</div>\n");
                     }
                 }
@@ -517,9 +544,9 @@ public class HtmlReportGenerator {
         content.append("    <details class=\"call-path\">\n");
 
         String clientCaller = entry.fullPath().isEmpty() ? entry.entryPoint()
-            : entry.fullPath().get(0);
+            : entry.fullPath().get(0).method();
         String depCaller = entry.fullPath().size() >= 2
-            ? entry.fullPath().get(1) : entry.entryPoint();
+            ? entry.fullPath().get(1).method() : entry.entryPoint();
         String pathSummary = clientCaller + " → " + depCaller + " → " + entry.sensitiveApi();
         content.append("      <summary>").append(escapeHtml(pathSummary)).append("</summary>\n");
 
@@ -889,6 +916,21 @@ public class HtmlReportGenerator {
             }
             changes.put("byCategory", changesByCat);
             stats.put("changes", changes);
+
+            // Attribution counts
+            Map<String, Integer> attrCounts = new LinkedHashMap<>();
+            for (RootCause rc : RootCause.values()) {
+                attrCounts.put(rc.name(), 0);
+            }
+            for (ChangeSet.DependencyChange mod : changeSet.getModifiedDependencies()) {
+                if (mod.attributions() == null) continue;
+                for (AttributedChange attr : mod.attributions()) {
+                    if (attr.rootCause() != null) {
+                        attrCounts.merge(attr.rootCause().name(), 1, Integer::sum);
+                    }
+                }
+            }
+            stats.put("attribution", attrCounts);
         }
 
         new ObjectMapper().writerWithDefaultPrettyPrinter()
@@ -897,6 +939,35 @@ public class HtmlReportGenerator {
 
     private static String normCategory(String category) {
         return (category == null || category.isBlank()) ? "OTHER" : category.toUpperCase();
+    }
+
+    private int maxCriticality(ChangeSet.DependencyChange change) {
+        if (change.attributions() == null) return 0;
+        return change.attributions().stream()
+                .filter(a -> a.rootCause() != null)
+                .mapToInt(a -> a.rootCause().criticality())
+                .max().orElse(0);
+    }
+
+    private String rootCauseBadge(AttributedChange attr) {
+        if (attr == null || attr.rootCause() == null) return "";
+        return rootCauseBadgeHtml(attr.rootCause());
+    }
+
+    private static String rootCauseBadgeHtml(RootCause cause) {
+        if (cause == null) return "";
+        int crit = cause.criticality();
+        return " <span class=\"root-cause root-cause-" + crit + "\">"
+                + escapeHtml(cause.label()) + "</span>";
+    }
+
+    private static Map<String, AttributedChange> buildAttributionLookup(List<AttributedChange> attributions) {
+        if (attributions == null) return Map.of();
+        Map<String, AttributedChange> map = new HashMap<>();
+        for (AttributedChange attr : attributions) {
+            map.putIfAbsent(attr.entry().sensitiveApi(), attr);
+        }
+        return map;
     }
 
     private static String accessTypeSpan(String accessType) {
