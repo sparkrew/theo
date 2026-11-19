@@ -194,7 +194,7 @@ public class HtmlReportGenerator {
                         boolean apiReachable = summary.isReachable(gav, api.getKey());
                         String apiClass = apiReachable ? " class=\"reachable\"" : "";
                         content.append("    <li").append(apiClass).append(">")
-                            .append(escapeHtml(api.getKey()));
+                            .append(escapeHtml(stripParams(api.getKey())));
                         content.append(accessTypeSpan(api.getValue()));
                         content.append("</li>\n");
                     }
@@ -302,7 +302,7 @@ public class HtmlReportGenerator {
                     Map<String, List<SensitiveApiEntry>> byApi = groupBySensitiveApi(depEntry.getValue());
                     for (Map.Entry<String, List<SensitiveApiEntry>> apiGroup : byApi.entrySet()) {
                         content.append("  <details class=\"sensitive-api reachable\">\n");
-                        content.append("    <summary>").append(escapeHtml(apiGroup.getKey()));
+                        content.append("    <summary>").append(escapeHtml(stripParams(apiGroup.getKey())));
                         if (!apiGroup.getValue().isEmpty()) {
                             content.append(accessTypeSpan(apiGroup.getValue().get(0).accessType()));
                         }
@@ -518,7 +518,7 @@ public class HtmlReportGenerator {
                     if (showPaths) {
                         content.append("    <details class=\"sensitive-api").append(changeType).append("\">\n");
                         content.append("      <summary>").append(escapeHtml(prefix))
-                            .append(escapeHtml(entry.sensitiveApi()))
+                            .append(escapeHtml(stripParams(entry.sensitiveApi())))
                             .append(accessTypeSpan(entry.accessType()))
                             .append(badge)
                             .append("</summary>\n");
@@ -526,7 +526,7 @@ public class HtmlReportGenerator {
                         content.append("    </details>\n");
                     } else {
                         content.append("    <div class=\"api-entry").append(changeType)
-                            .append("\">").append(escapeHtml(prefix)).append(escapeHtml(entry.sensitiveApi()))
+                            .append("\">").append(escapeHtml(prefix)).append(escapeHtml(stripParams(entry.sensitiveApi())))
                             .append(accessTypeSpan(entry.accessType()))
                             .append(badge)
                             .append("</div>\n");
@@ -548,13 +548,13 @@ public class HtmlReportGenerator {
             : entry.fullPath().get(0).method();
         String depCaller = entry.fullPath().size() >= 2
             ? entry.fullPath().get(1).method() : entry.entryPoint();
-        String pathSummary = clientCaller + " → " + depCaller + " → " + entry.sensitiveApi();
+        String pathSummary = stripParams(clientCaller) + " → " + stripParams(depCaller) + " → " + stripParams(entry.sensitiveApi());
         content.append("      <summary>").append(escapeHtml(pathSummary)).append("</summary>\n");
 
         content.append("      <div class=\"path-endpoints\">\n");
-        content.append("        <div><strong>Client caller:</strong> ").append(escapeHtml(clientCaller)).append("</div>\n");
-        content.append("        <div><strong>Dep caller:</strong> ").append(escapeHtml(depCaller)).append("</div>\n");
-        content.append("        <div><strong>Sensitive API:</strong> ").append(escapeHtml(entry.sensitiveApi())).append("</div>\n");
+        content.append("        <div><strong>Client caller:</strong> ").append(escapeHtml(stripParams(clientCaller))).append("</div>\n");
+        content.append("        <div><strong>Dep caller:</strong> ").append(escapeHtml(stripParams(depCaller))).append("</div>\n");
+        content.append("        <div><strong>Sensitive API:</strong> ").append(escapeHtml(stripParams(entry.sensitiveApi()))).append("</div>\n");
         content.append("      </div>\n");
 
         content.append("    </details>\n");
@@ -983,5 +983,12 @@ public class HtmlReportGenerator {
                    .replace("<", "&lt;")
                    .replace(">", "&gt;")
                    .replace("\"", "&quot;");
+    }
+
+    /** Strips the parameter list from a method signature for cleaner HTML display. */
+    private static String stripParams(String methodSignature) {
+        if (methodSignature == null) return "";
+        int idx = methodSignature.indexOf('(');
+        return idx >= 0 ? methodSignature.substring(0, idx) : methodSignature;
     }
 }
