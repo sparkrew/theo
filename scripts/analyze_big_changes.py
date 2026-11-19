@@ -78,19 +78,28 @@ def load_snapshots_index(snapshots_dir):
 
 
 def load_snapshot_api_detail(snap_path):
-    """Return {dep_key: {category: count}} from a snapshot file."""
+    """Return {dep_key: {category: count}} from a snapshot file.
+
+    Counts unique sensitive APIs per (dep, category), not entry objects.
+    Multiple call paths to the same API are counted once.
+    """
     try:
         with open(snap_path) as f:
             snap = json.load(f)
     except (json.JSONDecodeError, OSError):
         return {}
+    seen = set()
     result = defaultdict(lambda: defaultdict(int))
     for entry in snap.get("reachableApis", []):
         dep_key = (f"{entry.get('depGroupId', '')}:"
                    f"{entry.get('depArtifactId', '')}:"
                    f"{entry.get('depVersion', '')}")
+        api = entry.get("sensitiveApi", "")
         cat = entry.get("category", "OTHER")
-        result[dep_key][cat] += 1
+        pair = (dep_key, api)
+        if pair not in seen:
+            seen.add(pair)
+            result[dep_key][cat] += 1
     return {k: dict(v) for k, v in result.items()}
 
 

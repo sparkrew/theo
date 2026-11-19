@@ -119,18 +119,26 @@ def _summary_from_snapshot(snap_path):
     if not apis:
         return None
 
+    seen = set()
     by_cat = {}
     by_dep = {}
+    unique_count = 0
     for entry in apis:
-        cat = entry.get("category", "OTHER")
-        by_cat[cat] = by_cat.get(cat, 0) + 1
+        api = entry.get("sensitiveApi", "")
         dep_key = (f"{entry.get('depGroupId', '')}:"
                    f"{entry.get('depArtifactId', '')}:"
                    f"{entry.get('depVersion', '')}")
+        pair = (dep_key, api)
+        if pair in seen:
+            continue
+        seen.add(pair)
+        unique_count += 1
+        cat = entry.get("category", "OTHER")
+        by_cat[cat] = by_cat.get(cat, 0) + 1
         by_dep[dep_key] = by_dep.get(dep_key, 0) + 1
 
     return {
-        "reachableApis": len(apis),
+        "reachableApis": unique_count,
         "reachableApisByCategory": by_cat,
         "depsDetail": dict(sorted(by_dep.items(), key=lambda x: -x[1])),
     }
