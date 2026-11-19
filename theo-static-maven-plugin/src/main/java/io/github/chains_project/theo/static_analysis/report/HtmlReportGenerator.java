@@ -396,7 +396,7 @@ public class HtmlReportGenerator {
                     .append(" (new)")
                     .append(rootCauseBadgeHtml(RootCause.CLIENT_INITIATED))
                     .append("</summary>\n");
-                buildCategorizedApiList(content, apis, "", onlyReachable && summary.hasReachableEntries(), null);
+                buildCategorizedApiList(content, apis, "+ ", onlyReachable && summary.hasReachableEntries(), null);
                 content.append("</details>\n");
             }
         }
