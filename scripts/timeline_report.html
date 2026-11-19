@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sensitive API Reachability Timeline</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<style>
+:root {
+    --bg: #fafafa; --fg: #1a1a1a; --card: #fff; --border: #e0e0e0;
+    --muted: #666; --green: #2d6a4f; --red: #c0392b; --blue: #2980b9;
+}
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --bg: #181a1b; --fg: #d4d4d4; --card: #232526; --border: #3a3a3a;
+        --muted: #999; --green: #52b788; --red: #e74c3c; --blue: #5dade2;
+    }
+}
+:root[data-theme="dark"] {
+    --bg: #181a1b; --fg: #d4d4d4; --card: #232526; --border: #3a3a3a;
+    --muted: #999; --green: #52b788; --red: #e74c3c; --blue: #5dade2;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg); color: var(--fg);
+    padding: 24px 16px; max-width: 1400px; margin: 0 auto;
+}
+h1 { margin-bottom: 4px; font-size: 1.5rem; }
+.subtitle { color: var(--muted); margin-bottom: 32px; font-size: 0.9rem; }
+.module-section {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 24px; margin-bottom: 32px;
+}
+.module-section h2 { font-size: 1.2rem; margin-bottom: 16px; }
+.module-section h3 { font-size: 0.95rem; color: var(--muted); margin-bottom: 8px; margin-top: 16px; }
+.chart-full { margin-bottom: 32px; }
+canvas { height: 400px !important; }
+.table-container { overflow-x: auto; margin-top: 16px; }
+.dep-table-wrap table, .delta-table-wrap table {
+    border-collapse: collapse; width: 100%; font-size: 0.82rem;
+}
+.dep-table-wrap th, .dep-table-wrap td,
+.delta-table-wrap th, .delta-table-wrap td {
+    border: 1px solid var(--border); padding: 4px 6px; text-align: center;
+}
+.dep-table-wrap th, .delta-table-wrap th {
+    background: var(--bg); position: sticky; top: 0;
+}
+.dep-name { text-align: left !important; white-space: nowrap; font-family: monospace; font-size: 0.78rem; }
+.commit-col { min-width: 44px; font-size: 0.78rem; }
+.mono { font-family: monospace; font-size: 0.82rem; }
+.delta-up { color: var(--red); font-weight: 600; }
+.delta-down { color: var(--green); font-weight: 600; }
+.delta-change { color: var(--blue); }
+.cat-delta { font-size: 0.78rem; white-space: nowrap; }
+.details-cell { text-align: left !important; font-size: 0.78rem; line-height: 1.5; }
+.no-data { color: var(--muted); font-style: italic; padding: 8px 0; }
+</style>
+</head>
+<body>
+<h1>Sensitive API Reachability Timeline</h1>
+<p class="subtitle">33 commits analyzed &middot; generated 2026-11-15 00:00</p>
+
+        <div class="module-section">
+            <h2>(root)</h2>
+            <div class="chart-full">
+                <h3>Reachable Sensitive APIs by Category</h3>
+                <canvas id="apis_root"></canvas>
+            </div>
+            <div class="chart-full">
+                <h3>Reachable Deps / Total APIs</h3>
+                <canvas id="summary_root"></canvas>
+            </div>
+            <div class="table-container">
+                <h3>Top Dependencies by Reachable Sensitive APIs</h3>
+                <div id="deptable_root" class="dep-table-wrap"></div>
+            </div>
+            <div class="table-container">
+                <h3>Commits with Changes</h3>
+                <div id="deltas_root" class="delta-table-wrap"></div>
+            </div>
+        </div>
+        
+<script>
+Chart.defaults.color = getComputedStyle(document.documentElement).getPropertyValue('--fg').trim() || '#1a1a1a';
+Chart.defaults.borderColor = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#e0e0e0';
+
+        // --- (root) ---
+        new Chart(document.getElementById('apis_root'), {
+            type: 'line',
+            data: { labels: ["fad5844e (2025-09-03)", "120a99f6 (2025-10-06)", "216a5be0 (2026-03-06)", "5ed66095 (2026-03-24)", "1cba9561 (2026-04-06)", "d59409af (2026-04-14)", "76d7a5a1 (2026-05-15)", "159b9dbc (2026-05-15)", "a148036f (2026-05-18)", "9d6e2350 (2026-05-19)", "af190b26 (2026-05-26)", "e90badc6 (2026-05-27)", "aaa69f06 (2026-06-08)", "f4ac2b99 (2026-06-09)", "87f80645 (2026-06-11)", "7b0d3a8b (2026-06-22)", "56373d21 (2026-07-13)", "f71779df (2026-07-21)", "1c5d6fca (2026-08-20)", "c1a607fd (2026-08-24)", "96657e86 (2026-08-26)", "7e8a623f (2026-09-02)", "01061f36 (2026-09-16)", "e2cf7fad (2026-09-16)", "808b2f4e (2026-09-21)", "99b6c432 (2026-09-21)", "42973e77 (2026-09-23)", "2c654709 (2026-09-28)", "93316a31 (2026-09-30)", "d1fa9c46 (2026-10-07)", "ba070fef (2026-10-26)", "3527a604 (2026-10-26)", "5ecd14af (2026-10-28)"], datasets: [{"label": "FILESYSTEM", "data": [22, 22, 24, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19, 19], "borderColor": "#e07a3a", "backgroundColor": "rgba(224,122,58,0.15)", "borderWidth": 1.5, "pointRadius": 0, "pointHitRadius": 6, "fill": true, "tension": 0.3}, {"label": "PROCESS", "data": [43, 43, 48, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35, 35], "borderColor": "#d94a6b", "backgroundColor": "rgba(217,74,107,0.15)", "borderWidth": 1.5, "pointRadius": 0, "pointHitRadius": 6, "fill": true, "tension": 0.3}] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } },
+                scales: {
+                    x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 20 } },
+                    y: { beginAtZero: true, title: { display: true, text: 'API count' } }
+                }
+            }
+        });
+
+        new Chart(document.getElementById('summary_root'), {
+            type: 'line',
+            data: {
+                labels: ["fad5844e (2025-09-03)", "120a99f6 (2025-10-06)", "216a5be0 (2026-03-06)", "5ed66095 (2026-03-24)", "1cba9561 (2026-04-06)", "d59409af (2026-04-14)", "76d7a5a1 (2026-05-15)", "159b9dbc (2026-05-15)", "a148036f (2026-05-18)", "9d6e2350 (2026-05-19)", "af190b26 (2026-05-26)", "e90badc6 (2026-05-27)", "aaa69f06 (2026-06-08)", "f4ac2b99 (2026-06-09)", "87f80645 (2026-06-11)", "7b0d3a8b (2026-06-22)", "56373d21 (2026-07-13)", "f71779df (2026-07-21)", "1c5d6fca (2026-08-20)", "c1a607fd (2026-08-24)", "96657e86 (2026-08-26)", "7e8a623f (2026-09-02)", "01061f36 (2026-09-16)", "e2cf7fad (2026-09-16)", "808b2f4e (2026-09-21)", "99b6c432 (2026-09-21)", "42973e77 (2026-09-23)", "2c654709 (2026-09-28)", "93316a31 (2026-09-30)", "d1fa9c46 (2026-10-07)", "ba070fef (2026-10-26)", "3527a604 (2026-10-26)", "5ecd14af (2026-10-28)"],
+                datasets: [
+                    {
+                        label: 'Total reachable APIs',
+                        data: [65, 65, 72, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54, 54],
+                        borderColor: '#2d6a4f',
+                        backgroundColor: 'rgba(45,106,79,0.1)',
+                        borderWidth: 1.5, pointRadius: 0, pointHitRadius: 6,
+                        fill: true, tension: 0.3, yAxisID: 'y'
+                    },
+                    {
+                        label: 'Deps with reachable APIs',
+                        data: [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3],
+                        borderColor: '#6c4ab6',
+                        backgroundColor: 'rgba(108,74,182,0.1)',
+                        borderWidth: 1.5, pointRadius: 0, pointHitRadius: 6,
+                        fill: true, tension: 0.3, yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } },
+                scales: {
+                    x: { ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 20 } },
+                    y: { beginAtZero: true, position: 'left', title: { display: true, text: 'APIs' } },
+                    y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false },
+                           title: { display: true, text: 'Deps' } }
+                }
+            }
+        });
+
+        // dep heatmap table
+        (function() {
+            const deps = [{"dep": "org.liquibase:liquibase-core:5.0.4", "values": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28]}, {"dep": "org.liquibase:liquibase-core:5.0.3", "values": [0, 0, 0, 0, 0, 0, 0, 0, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}, {"dep": "org.liquibase:liquibase-core:5.0.2", "values": [0, 0, 28, 28, 28, 28, 28, 28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}, {"dep": "org.hibernate.orm:hibernate-core:6.6.15.Final", "values": [43, 43, 43, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}, {"dep": "org.hibernate.orm:hibernate-core:7.4.5.Final", "values": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 25, 25, 25, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}, {"dep": "org.hibernate.orm:hibernate-core:7.3.4.Final", "values": [0, 0, 0, 0, 0, 0, 25, 25, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}, {"dep": "org.hibernate.orm:hibernate-core:7.4.0.Final", "values": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 25, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}, {"dep": "org.hibernate.orm:hibernate-core:7.4.1.Final", "values": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 25, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}, {"dep": "org.hibernate.orm:hibernate-core:7.4.8.Final", "values": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 25, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0]}, {"dep": "org.hibernate.orm:hibernate-core:7.4.9.Final", "values": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 25, 25, 0, 0, 0, 0, 0, 0, 0]}, {"dep": "org.hibernate.orm:hibernate-core:7.4.10.Final", "values": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 25, 25, 0, 0, 0, 0, 0]}, {"dep": "org.hibernate.orm:hibernate-core:7.4.12.Final", "values": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 25, 25, 0, 0]}, {"dep": "org.hibernate.orm:hibernate-core:7.2.4.Final", "values": [0, 0, 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}, {"dep": "org.hibernate.orm:hibernate-core:7.3.0.Final", "values": [0, 0, 0, 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}, {"dep": "org.hibernate.orm:hibernate-core:7.3.1.Final", "values": [0, 0, 0, 0, 0, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]}];
+            const labels = ["fad5844e (2025-09-03)", "120a99f6 (2025-10-06)", "216a5be0 (2026-03-06)", "5ed66095 (2026-03-24)", "1cba9561 (2026-04-06)", "d59409af (2026-04-14)", "76d7a5a1 (2026-05-15)", "159b9dbc (2026-05-15)", "a148036f (2026-05-18)", "9d6e2350 (2026-05-19)", "af190b26 (2026-05-26)", "e90badc6 (2026-05-27)", "aaa69f06 (2026-06-08)", "f4ac2b99 (2026-06-09)", "87f80645 (2026-06-11)", "7b0d3a8b (2026-06-22)", "56373d21 (2026-07-13)", "f71779df (2026-07-21)", "1c5d6fca (2026-08-20)", "c1a607fd (2026-08-24)", "96657e86 (2026-08-26)", "7e8a623f (2026-09-02)", "01061f36 (2026-09-16)", "e2cf7fad (2026-09-16)", "808b2f4e (2026-09-21)", "99b6c432 (2026-09-21)", "42973e77 (2026-09-23)", "2c654709 (2026-09-28)", "93316a31 (2026-09-30)", "d1fa9c46 (2026-10-07)", "ba070fef (2026-10-26)", "3527a604 (2026-10-26)", "5ecd14af (2026-10-28)"];
+            if (deps.length === 0) return;
+            let html = '<table><thead><tr><th class="dep-name">Dependency</th>';
+            labels.forEach(l => html += '<th class="commit-col">' + l.split(' ')[0] + '</th>');
+            html += '</tr></thead><tbody>';
+            const maxVal = Math.max(...deps.flatMap(d => d.values), 1);
+            deps.forEach(d => {
+                html += '<tr><td class="dep-name">' + d.dep + '</td>';
+                d.values.forEach(v => {
+                    const intensity = v / maxVal;
+                    const bg = v === 0 ? 'transparent'
+                        : 'rgba(217,74,107,' + (0.15 + intensity * 0.65).toFixed(2) + ')';
+                    html += '<td class="commit-col" style="background:' + bg + '">'
+                        + (v > 0 ? v : '') + '</td>';
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            document.getElementById('deptable_root').innerHTML = html;
+        })();
+
+        // deltas table
+        (function() {
+            const rows = [{"sha": "120a99f6", "date": "2025-10-06", "message": "Update liquibase.version to 5.0.1", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.liquibase:liquibase-core:5.0.1", "apis": 21}], "removedDeps": [{"dep": "org.liquibase:liquibase-core:4.33.0", "apis": 21}], "changedDeps": []}, {"sha": "216a5be0", "date": "2026-03-06", "message": "Update liquibase.version to 5.0.2", "apisDelta": 7, "depsDelta": 0, "categoryDeltas": {"FILESYSTEM": 2, "PROCESS": 5}, "addedDeps": [{"dep": "org.liquibase:liquibase-core:5.0.2", "apis": 28}], "removedDeps": [{"dep": "org.liquibase:liquibase-core:5.0.1", "apis": 21}], "changedDeps": []}, {"sha": "5ed66095", "date": "2026-03-24", "message": "Merge pull request #852 from borinquenkid/feature/liquibase5-hibernate7", "apisDelta": -18, "depsDelta": 0, "categoryDeltas": {"FILESYSTEM": -5, "PROCESS": -13}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.2.4.Final", "apis": 25}, {"dep": "org.springframework:spring-core:7.0.2", "apis": 1}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:6.6.15.Final", "apis": 43}, {"dep": "org.springframework:spring-core:6.2.10", "apis": 1}], "changedDeps": []}, {"sha": "1cba9561", "date": "2026-04-06", "message": "Merge pull request #869 from liquibase/dependabot/maven/org.hibernate.models-hibernate-models-1.1.1", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.3.0.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.2.4.Final", "apis": 25}], "changedDeps": []}, {"sha": "d59409af", "date": "2026-04-14", "message": "Merge pull request #872 from liquibase/dependabot/maven/hibernate.version-7.3.1.Final", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.3.1.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.3.0.Final", "apis": 25}], "changedDeps": []}, {"sha": "76d7a5a1", "date": "2026-05-15", "message": "chore(deps): bump hibernate.version from 7.3.1.Final to 7.3.4.Final (#883)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.3.4.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.3.1.Final", "apis": 25}], "changedDeps": []}, {"sha": "159b9dbc", "date": "2026-05-15", "message": "chore(deps): bump spring.version from 7.0.2 to 7.0.7 (#878)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.springframework:spring-core:7.0.7", "apis": 1}], "removedDeps": [{"dep": "org.springframework:spring-core:7.0.2", "apis": 1}], "changedDeps": []}, {"sha": "a148036f", "date": "2026-05-18", "message": "Update liquibase.version to 5.0.3", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.liquibase:liquibase-core:5.0.3", "apis": 28}], "removedDeps": [{"dep": "org.liquibase:liquibase-core:5.0.2", "apis": 28}], "changedDeps": []}, {"sha": "9d6e2350", "date": "2026-05-19", "message": "chore(deps): bump hibernate.version from 7.3.4.Final to 7.3.5.Final (#893)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.3.5.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.3.4.Final", "apis": 25}], "changedDeps": []}, {"sha": "af190b26", "date": "2026-05-26", "message": "chore(deps): bump hibernate.version from 7.3.5.Final to 7.3.6.Final (#894)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.3.6.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.3.5.Final", "apis": 25}], "changedDeps": []}, {"sha": "e90badc6", "date": "2026-05-27", "message": "chore(deps): bump hibernate.version from 7.3.6.Final to 7.4.0.Final (#895)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.0.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.3.6.Final", "apis": 25}], "changedDeps": []}, {"sha": "aaa69f06", "date": "2026-06-08", "message": "chore(deps): bump spring.version from 7.0.7 to 7.0.8 (#901)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.springframework:spring-core:7.0.8", "apis": 1}], "removedDeps": [{"dep": "org.springframework:spring-core:7.0.7", "apis": 1}], "changedDeps": []}, {"sha": "f4ac2b99", "date": "2026-06-09", "message": "chore(deps): bump hibernate.version from 7.4.0.Final to 7.4.1.Final (#904)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.1.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.0.Final", "apis": 25}], "changedDeps": []}, {"sha": "7b0d3a8b", "date": "2026-06-22", "message": "chore(deps): bump hibernate.version from 7.4.1.Final to 7.4.2.Final (#908)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.2.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.1.Final", "apis": 25}], "changedDeps": []}, {"sha": "56373d21", "date": "2026-07-13", "message": "chore(deps): bump hibernate.version from 7.4.2.Final to 7.4.5.Final (#916)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.5.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.2.Final", "apis": 25}], "changedDeps": []}, {"sha": "1c5d6fca", "date": "2026-08-20", "message": "Update liquibase.version to 5.0.4", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.liquibase:liquibase-core:5.0.4", "apis": 28}], "removedDeps": [{"dep": "org.liquibase:liquibase-core:5.0.3", "apis": 28}], "changedDeps": []}, {"sha": "c1a607fd", "date": "2026-08-24", "message": "chore(deps): bump spring.version from 7.0.8 to 7.0.9 (#936)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.springframework:spring-core:7.0.9", "apis": 1}], "removedDeps": [{"dep": "org.springframework:spring-core:7.0.8", "apis": 1}], "changedDeps": []}, {"sha": "96657e86", "date": "2026-08-26", "message": "chore(deps): bump hibernate.version from 7.4.5.Final to 7.4.6.Final (#938)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.6.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.5.Final", "apis": 25}], "changedDeps": []}, {"sha": "7e8a623f", "date": "2026-09-02", "message": "chore(deps): bump hibernate.version from 7.4.6.Final to 7.4.7.Final (#941)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.7.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.6.Final", "apis": 25}], "changedDeps": []}, {"sha": "01061f36", "date": "2026-09-16", "message": "chore(deps): bump hibernate.version from 7.4.7.Final to 7.4.8.Final (#948)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.8.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.7.Final", "apis": 25}], "changedDeps": []}, {"sha": "808b2f4e", "date": "2026-09-21", "message": "chore(deps): bump hibernate.version from 7.4.8.Final to 7.4.9.Final (#951)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.9.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.8.Final", "apis": 25}], "changedDeps": []}, {"sha": "42973e77", "date": "2026-09-23", "message": "chore(deps): bump hibernate.version from 7.4.9.Final to 7.4.10.Final (#954)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.10.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.9.Final", "apis": 25}], "changedDeps": []}, {"sha": "93316a31", "date": "2026-09-30", "message": "chore(deps): bump hibernate.version from 7.4.10.Final to 7.4.11.Final (#960)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.11.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.10.Final", "apis": 25}], "changedDeps": []}, {"sha": "d1fa9c46", "date": "2026-10-07", "message": "chore(deps): bump hibernate.version from 7.4.11.Final to 7.4.12.Final (#962)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.12.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.11.Final", "apis": 25}], "changedDeps": []}, {"sha": "ba070fef", "date": "2026-10-26", "message": "chore(deps): bump spring.version from 7.0.9 to 7.0.10 (#970)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.springframework:spring-core:7.0.10", "apis": 1}], "removedDeps": [{"dep": "org.springframework:spring-core:7.0.9", "apis": 1}], "changedDeps": []}, {"sha": "3527a604", "date": "2026-10-26", "message": "chore(deps): bump hibernate.version from 7.4.12.Final to 7.4.13.Final (#963)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.13.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.12.Final", "apis": 25}], "changedDeps": []}, {"sha": "5ecd14af", "date": "2026-10-28", "message": "chore(deps): bump hibernate.version from 7.4.13.Final to 7.4.14.Final (#974)", "apisDelta": 0, "depsDelta": 0, "categoryDeltas": {}, "addedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.14.Final", "apis": 25}], "removedDeps": [{"dep": "org.hibernate.orm:hibernate-core:7.4.13.Final", "apis": 25}], "changedDeps": []}];
+            if (rows.length === 0) {
+                document.getElementById('deltas_root').innerHTML = '<p class="no-data">No changes detected between consecutive commits.</p>';
+                return;
+            }
+            let html = '<table><thead><tr><th>Commit</th><th>Date</th><th>APIs Δ</th><th>Deps Δ</th><th>Category Δ</th><th>Details</th></tr></thead><tbody>';
+            rows.forEach(r => {
+                const apiClass = r.apisDelta > 0 ? 'delta-up' : r.apisDelta < 0 ? 'delta-down' : '';
+                const depClass = r.depsDelta > 0 ? 'delta-up' : r.depsDelta < 0 ? 'delta-down' : '';
+                const apiSign = r.apisDelta > 0 ? '+' : '';
+                const depSign = r.depsDelta > 0 ? '+' : '';
+
+                let catParts = [];
+                for (const [cat, val] of Object.entries(r.categoryDeltas || {})) {
+                    const s = val > 0 ? '+' : '';
+                    catParts.push(cat + ': ' + s + val);
+                }
+
+                let details = [];
+                r.addedDeps.forEach(d => details.push('<span class="delta-up">+ ' + d.dep.split(':').slice(0,2).join(':') + ' (' + d.apis + ' APIs)</span>'));
+                r.removedDeps.forEach(d => details.push('<span class="delta-down">− ' + d.dep.split(':').slice(0,2).join(':') + ' (' + d.apis + ' APIs)</span>'));
+                r.changedDeps.forEach(d => details.push('<span class="delta-change">↔ ' + d.dep.split(':').slice(0,2).join(':') + ' ' + d.from + '→' + d.to + '</span>'));
+
+                html += '<tr>';
+                html += '<td class="mono">' + r.sha + '</td>';
+                html += '<td>' + r.date + '</td>';
+                html += '<td class="' + apiClass + '">' + apiSign + r.apisDelta + '</td>';
+                html += '<td class="' + depClass + '">' + depSign + r.depsDelta + '</td>';
+                html += '<td class="cat-delta">' + (catParts.join(', ') || '—') + '</td>';
+                html += '<td class="details-cell">' + (details.join('<br>') || '—') + '</td>';
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+            document.getElementById('deltas_root').innerHTML = html;
+        })();
+        
+</script>
+</body>
+</html>

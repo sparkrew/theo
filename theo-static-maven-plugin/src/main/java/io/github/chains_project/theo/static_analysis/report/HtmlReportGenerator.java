@@ -35,6 +35,7 @@ public class HtmlReportGenerator {
         .root-cause.client-initiated { background: #eff6ff; color: #2563eb; }
         .root-cause.client-initiated-indirect { background: #fffbeb; color: #d97706; }
         .root-cause.dep-initiated { background: #fef2f2; color: #dc2626; }
+        .root-cause.dep-initiated-indirect { background: #fef2f2; color: #dc2626; }
         .root-cause.indirect-dep-initiated { background: #f5f3ff; color: #7c3aed; }
         </style>
         """;
@@ -956,8 +957,8 @@ public class HtmlReportGenerator {
 
     private static String rootCauseBadgeHtml(RootCause cause) {
         if (cause == null) return "";
-        int crit = cause.criticality();
-        return " <span class=\"root-cause root-cause-" + crit + "\">"
+        String cssClass = cause.name().toLowerCase().replace('_', '-');
+        return " <span class=\"root-cause " + cssClass + "\">"
                 + escapeHtml(cause.label()) + "</span>";
     }
 
