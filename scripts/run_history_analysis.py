@@ -889,9 +889,14 @@ def process_project(entry, force=False):
             t = time.time()
             module_stats = {}
             for module in modules:
+                cve_ok = False
                 try:
+                    compare_flag = "-Dtheo.compareWith=1" if not is_baseline else ""
                     run_theo_goal(project_path, module, package_name,
-                                  "cve-check", profiles=profiles)
+                                  "cve-check",
+                                  extra_flags=compare_flag,
+                                  profiles=profiles)
+                    cve_ok = True
                 except RuntimeError as e:
                     log.warning(f"  cve-check failed on {module}: "
                                 f"{str(e)[:150]}")
@@ -910,6 +915,12 @@ def process_project(entry, force=False):
                 commit_dir, _ = _report_dirs(
                     project_report_base, module, commit)
                 copy_commit_reports(project_path, module, commit_dir)
+                if cve_ok:
+                    changes_file = commit_dir / "changes.html"
+                    if changes_file.exists():
+                        log.info(f"  Changes report saved: {changes_file}")
+                    else:
+                        log.warning(f"  Changes report missing for {module} at {commit[:8]}")
 
                 # ---- collect reachability stats ----
                 mod_summary = collect_reachability_summary(
