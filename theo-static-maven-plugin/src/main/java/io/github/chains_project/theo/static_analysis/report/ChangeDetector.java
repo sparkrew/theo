@@ -195,7 +195,7 @@ public class ChangeDetector {
             if (depVersionChanged) {
                 return isIndirect ? RootCause.DEP_INITIATED_INDIRECT : RootCause.DEP_INITIATED;
             } else {
-                return RootCause.INDIRECT_DEP_INITIATED;
+                return isIndirect ? RootCause.INDIRECT_DEP_INITIATED : RootCause.UNKNOWN_INITIATION;
             }
         } else {
             return isIndirect ? RootCause.CLIENT_INITIATED_INDIRECT : RootCause.CLIENT_INITIATED;
@@ -235,7 +235,8 @@ public class ChangeDetector {
             case CLIENT_INITIATED_INDIRECT -> "Client boundary changed, indirect access via " + depGa;
             case DEP_INITIATED -> "Boundary stable, " + depGa + " version changed, direct access";
             case DEP_INITIATED_INDIRECT -> "Boundary stable, " + depGa + " version changed, indirect access";
-            case INDIRECT_DEP_INITIATED -> "Boundary stable, " + depGa + " version unchanged";
+            case INDIRECT_DEP_INITIATED -> "Boundary stable, " + depGa + " version unchanged, indirect access";
+            case UNKNOWN_INITIATION -> "Boundary stable, " + depGa + " version unchanged, direct access";
         };
     }
 

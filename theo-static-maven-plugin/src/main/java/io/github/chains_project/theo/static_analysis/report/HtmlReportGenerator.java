@@ -37,6 +37,7 @@ public class HtmlReportGenerator {
         .root-cause.dep-initiated { background: #fffbeb; color: #d97706; }
         .root-cause.dep-initiated-indirect { background: #fffbeb; color: #d97706; }
         .root-cause.indirect-dep-initiated { background: #fef2f2; color: #dc2626; }
+        .root-cause.unknown-initiation { background: #f3f4f6; color: #4b5563; }
         </style>
         """;
 

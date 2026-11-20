@@ -18,8 +18,11 @@ public enum RootCause {
     /** Boundary stable, direct dep version changed, indirect access. */
     DEP_INITIATED_INDIRECT(3, "Dep Initiated (Indirect)"),
 
-    /** Boundary stable, direct dep version unchanged — a transitive dep changed. */
-    INDIRECT_DEP_INITIATED(4, "Indirect Dep Initiated");
+    /** Boundary stable, direct dep version unchanged, indirect access — a transitive dep changed. */
+    INDIRECT_DEP_INITIATED(4, "Indirect Dep Initiated"),
+
+    /** Boundary stable, direct dep version unchanged, direct access — cause unclear. */
+    UNKNOWN_INITIATION(4, "Unknown Initiation");
 
     private final int criticality;
     private final String label;
