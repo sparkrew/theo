@@ -548,11 +548,25 @@ public class HtmlReportGenerator {
             : entry.fullPath().get(0).method();
         String depCaller = entry.fullPath().size() >= 2
             ? entry.fullPath().get(1).method() : entry.entryPoint();
-        String pathSummary = stripParams(clientCaller) + " → " + stripParams(depCaller) + " → " + stripParams(entry.sensitiveApi());
+        String depEntry = entry.entryPoint();
+        boolean showDepEntry = depEntry != null && !depEntry.isEmpty()
+            && !stripParams(depEntry).equals(stripParams(depCaller));
+
+        String pathSummary;
+        if (showDepEntry) {
+            pathSummary = stripParams(clientCaller) + " → " + stripParams(depEntry)
+                + " → " + stripParams(depCaller) + " → " + stripParams(entry.sensitiveApi());
+        } else {
+            pathSummary = stripParams(clientCaller) + " → " + stripParams(depCaller)
+                + " → " + stripParams(entry.sensitiveApi());
+        }
         content.append("      <summary>").append(escapeHtml(pathSummary)).append("</summary>\n");
 
         content.append("      <div class=\"path-endpoints\">\n");
         content.append("        <div><strong>Client caller:</strong> ").append(escapeHtml(stripParams(clientCaller))).append("</div>\n");
+        if (showDepEntry) {
+            content.append("        <div><strong>Dep entry:</strong> ").append(escapeHtml(stripParams(depEntry))).append("</div>\n");
+        }
         content.append("        <div><strong>Dep caller:</strong> ").append(escapeHtml(stripParams(depCaller))).append("</div>\n");
         content.append("        <div><strong>Sensitive API:</strong> ").append(escapeHtml(stripParams(entry.sensitiveApi()))).append("</div>\n");
         content.append("      </div>\n");
