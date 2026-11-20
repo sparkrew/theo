@@ -33,10 +33,10 @@ public class HtmlReportGenerator {
         .root-cause { display: inline-block; padding: 2px 8px; border-radius: 4px;
             font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em; margin-left: 6px; }
         .root-cause.client-initiated { background: #eff6ff; color: #2563eb; }
-        .root-cause.client-initiated-indirect { background: #fffbeb; color: #d97706; }
-        .root-cause.dep-initiated { background: #fef2f2; color: #dc2626; }
-        .root-cause.dep-initiated-indirect { background: #fef2f2; color: #dc2626; }
-        .root-cause.indirect-dep-initiated { background: #f5f3ff; color: #7c3aed; }
+        .root-cause.client-initiated-indirect { background: #f5f3ff; color: #7c3aed; }
+        .root-cause.dep-initiated { background: #fffbeb; color: #d97706; }
+        .root-cause.dep-initiated-indirect { background: #fffbeb; color: #d97706; }
+        .root-cause.indirect-dep-initiated { background: #fef2f2; color: #dc2626; }
         </style>
         """;
 
