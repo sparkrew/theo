@@ -169,14 +169,20 @@ public class ChangeDetector {
         Set<String> prevBoundaryKeys = buildBoundaryLookup(previous);
         Set<String> currBoundaryKeys = buildBoundaryLookup(current);
 
+        Map<String, String> prevVersions = buildVersionMap(previous);
+        Map<String, String> currVersions = buildVersionMap(current);
+        boolean anyTransitiveDepChanged = hasTransitiveDepVersionChange(prevVersions, currVersions, depGa);
+
         for (SensitiveApiEntry entry : addedEntries) {
-            RootCause cause = classifyChange(entry, depGa, depVersionChanged, prevBoundaryKeys);
+            RootCause cause = classifyChange(entry, depGa, depVersionChanged,
+                    prevBoundaryKeys, anyTransitiveDepChanged);
             attributions.add(new AttributedChange(entry, "ADDED", cause, depGa,
                     describeAttribution(cause, depGa)));
         }
 
         for (SensitiveApiEntry entry : removedEntries) {
-            RootCause cause = classifyChange(entry, depGa, depVersionChanged, currBoundaryKeys);
+            RootCause cause = classifyChange(entry, depGa, depVersionChanged,
+                    currBoundaryKeys, anyTransitiveDepChanged);
             attributions.add(new AttributedChange(entry, "REMOVED", cause, depGa,
                     describeAttribution(cause, depGa)));
         }
@@ -186,7 +192,8 @@ public class ChangeDetector {
 
     /** Classifies the root cause of an API change based on boundary stability. */
     private RootCause classifyChange(SensitiveApiEntry entry, String depGa,
-                                      boolean depVersionChanged, Set<String> boundaryKeys) {
+                                      boolean depVersionChanged, Set<String> boundaryKeys,
+                                      boolean anyTransitiveDepChanged) {
         String boundaryKey = extractBoundaryKey(entry, depGa);
         boolean boundaryExisted = boundaryKey != null && boundaryKeys.contains(boundaryKey);
         boolean isIndirect = "INDIRECT".equals(entry.accessType());
@@ -194,12 +201,52 @@ public class ChangeDetector {
         if (boundaryExisted) {
             if (depVersionChanged) {
                 return isIndirect ? RootCause.DEP_INITIATED_INDIRECT : RootCause.DEP_INITIATED;
+            } else if (isIndirect && anyTransitiveDepChanged) {
+                return RootCause.INDIRECT_DEP_INITIATED;
             } else {
-                return isIndirect ? RootCause.INDIRECT_DEP_INITIATED : RootCause.UNKNOWN_INITIATION;
+                return RootCause.UNKNOWN_INITIATION;
             }
         } else {
             return isIndirect ? RootCause.CLIENT_INITIATED_INDIRECT : RootCause.CLIENT_INITIATED;
         }
+    }
+
+    /**
+     * Builds a map of "groupId:artifactId" → version from all dependency reports.
+     */
+    private Map<String, String> buildVersionMap(AnalysisSummary summary) {
+        Map<String, String> versions = new HashMap<>();
+        if (summary == null || summary.getDependencyReports() == null) return versions;
+        for (DependencyReport dep : summary.getDependencyReports()) {
+            versions.put(dep.getGroupId() + ":" + dep.getArtifactId(), dep.getVersion());
+        }
+        return versions;
+    }
+
+    /**
+     * Checks whether any dependency other than the given depGa changed version
+     * between the two runs. This indicates a transitive dependency update.
+     */
+    private boolean hasTransitiveDepVersionChange(Map<String, String> prevVersions,
+                                                   Map<String, String> currVersions,
+                                                   String depGa) {
+        for (Map.Entry<String, String> curr : currVersions.entrySet()) {
+            String ga = curr.getKey();
+            if (ga.equals(depGa)) continue;
+            String prevVersion = prevVersions.get(ga);
+            if (prevVersion != null && !prevVersion.equals(curr.getValue())) {
+                return true;
+            }
+            if (prevVersion == null) {
+                return true;
+            }
+        }
+        for (String ga : prevVersions.keySet()) {
+            if (!ga.equals(depGa) && !currVersions.containsKey(ga)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -235,8 +282,8 @@ public class ChangeDetector {
             case CLIENT_INITIATED_INDIRECT -> "Client boundary changed, indirect access via " + depGa;
             case DEP_INITIATED -> "Boundary stable, " + depGa + " version changed, direct access";
             case DEP_INITIATED_INDIRECT -> "Boundary stable, " + depGa + " version changed, indirect access";
-            case INDIRECT_DEP_INITIATED -> "Boundary stable, " + depGa + " version unchanged, indirect access";
-            case UNKNOWN_INITIATION -> "Boundary stable, " + depGa + " version unchanged, direct access";
+            case INDIRECT_DEP_INITIATED -> "Boundary stable, " + depGa + " version unchanged, transitive dep changed";
+            case UNKNOWN_INITIATION -> "Boundary stable, " + depGa + " version unchanged, no dep version change detected";
         };
     }
 
