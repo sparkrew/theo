@@ -103,7 +103,7 @@ os.environ["MAVEN_OPTS"] = os.environ.get("MAVEN_OPTS", "") + " -Xmx3g"
 THEO_PLUGIN = "io.github.sparkrew:theo-static-maven-plugin"
 MVN_BUILD = (
     f"mvn clean install -DskipTests -Dcheckstyle.skip=true -Dmaven.site.skip=true"
-    f"-Dspotless.check.skip=true -Denforcer.skip=true "
+    f"-Dspotless.check.skip=true -Denforcer.skip=true -Drat.skip=true "
     f"-Dmaven.build.cache.enabled=false "
     f"-Dmaven.repo.local={M2_REPO}"
 )
